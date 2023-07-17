@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import abc
 import itertools
+import random
 import time
 from collections import deque
 from os import PathLike
@@ -520,5 +521,39 @@ class RegularFrameSamplingModel(ZeroWaitFrameSamplingModel):
             )
             dt = (time.monotonic() - step_start) - instant
 
+            if instant > target_time:
+                break
+
+
+class LegacyFrameSamplingModel(ZeroWaitFrameSamplingModel):
+    rewind_seconds = 5
+
+    def step_iterator(
+        self,
+        target_time: float,
+        ttf: float,
+    ) -> Generator[FrameSample, FrameTimings, None]:
+        """
+        Emulates an EdgeDroid 1.0 trace. At any instant >= target time, there's a 50% chance of this sampling model
+        "rewinding" 5 seconds from the end of the trace.
+        """
+        offset_seconds = 0
+        rng = random.Random()
+        step_start = time.monotonic()
+        for seq in itertools.count(start=1):
+            real_instant = time.monotonic() - step_start
+            instant = real_instant - offset_seconds
+
+            if (instant >= target_time) and bool(rng.randint(0, 1)):
+                # coin flip to decide if rewind
+                instant = target_time - self.rewind_seconds
+                offset_seconds = real_instant - instant
+
+            _, _ = yield FrameSample(
+                seq=seq,
+                sample_tag=self.get_frame_at_instant(instant, target_time),
+                instant=real_instant,
+                extra={},
+            )
             if instant > target_time:
                 break

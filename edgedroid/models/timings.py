@@ -17,8 +17,9 @@ from __future__ import annotations
 import abc
 import copy
 import enum
+import random
 from collections import deque
-from typing import Any, Dict, Iterator, Tuple, TypeVar
+from typing import Any, Dict, Iterator, Tuple, TypeVar, Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -166,12 +167,14 @@ class ExecutionTimeModel(Iterator[float], metaclass=abc.ABCMeta):
     """
 
     @staticmethod
-    def get_data() -> Tuple[
-        pd.DataFrame,
-        pd.arrays.IntervalArray,
-        pd.arrays.IntervalArray,
-        pd.arrays.IntervalArray,
-    ]:
+    def get_data() -> (
+        Tuple[
+            pd.DataFrame,
+            pd.arrays.IntervalArray,
+            pd.arrays.IntervalArray,
+            pd.arrays.IntervalArray,
+        ]
+    ):
         import edgedroid.data as e_data
 
         return e_data.load_default_exec_time_data()
@@ -714,7 +717,6 @@ class ExpKernelRollingTTFETModel(ExecutionTimeModel):
         window: int = 12,
         ttf_levels: int = 7,
     ):
-
         data, neuro_bins, *_ = self.get_data()
 
         data["next_exec_time"] = data["exec_time"].shift(-1)
@@ -834,3 +836,36 @@ class DistExpKernelRollingTTFETModel(ExpKernelRollingTTFETModel):
 
     def get_cdf_at_instant(self, instant: float) -> float:
         return float(self._dists[self._get_binned_ttf()].cdf(instant))
+
+
+class LegacyExecutionTimeModel(ExpKernelRollingTTFETModel):
+    """
+    EdgeDroid 1.0 execution time model.
+    """
+
+    def __init__(
+        self,
+        seed: int = 4,
+        neuroticism: float = 0.5,
+        window: int = 12,
+        ttf_levels: int = 7,
+    ):
+        super(ExpKernelRollingTTFETModel, self).__init__(
+            neuroticism=neuroticism,
+            window=window,
+            ttf_levels=ttf_levels,
+        )
+        # as long as the seed is the same will generate the same sequence of execution times
+        self._seed = seed
+        self._rng = np.random.default_rng(seed=self._seed)
+
+    def advance(self: TTimingModel, ttf: float | int) -> TTimingModel:
+        super().advance(
+            ttf=0
+        )  # EdgeDroid 1.0 used a trace recorded in optimal conditions
+        return self
+
+    def reset(self) -> None:
+        self._window = np.zeros(self._window.size, dtype=float)
+        self._rng = np.random.default_rng(seed=self._seed)
+        self._steps = 0
