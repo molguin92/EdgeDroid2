@@ -526,7 +526,8 @@ class RegularFrameSamplingModel(ZeroWaitFrameSamplingModel):
 
 
 class LegacyFrameSamplingModel(ZeroWaitFrameSamplingModel):
-    rewind_seconds = 5
+    rewind_seconds = 5.0
+    padding_seconds = 1.0
 
     def step_iterator(
         self,
@@ -534,26 +535,25 @@ class LegacyFrameSamplingModel(ZeroWaitFrameSamplingModel):
         ttf: float,
     ) -> Generator[FrameSample, FrameTimings, None]:
         """
-        Emulates an EdgeDroid 1.0 trace. At any instant >= target time, there's a 50% chance of this sampling model
-        "rewinding" 5 seconds from the end of the trace.
+        Emulates an EdgeDroid 1.0 trace.
         """
-        offset_seconds = 0
-        rng = random.Random()
+        padded_time = target_time + self.padding_seconds
+        rewind_start = padded_time - self.rewind_seconds
+
         step_start = time.monotonic()
         for seq in itertools.count(start=1):
-            real_instant = time.monotonic() - step_start
-            instant = real_instant - offset_seconds
+            instant = time.monotonic() - step_start
 
-            if (instant >= target_time) and bool(rng.randint(0, 1)):
-                # coin flip to decide if rewind
-                instant = target_time - self.rewind_seconds
-                offset_seconds = real_instant - instant
+            if instant > padded_time:
+                # "rewind"
+                instant = rewind_start + ((instant - padded_time) % self.rewind_seconds)
 
             _, _ = yield FrameSample(
                 seq=seq,
                 sample_tag=self.get_frame_at_instant(instant, target_time),
-                instant=real_instant,
+                instant=instant,
                 extra={},
             )
+
             if instant > target_time:
                 break
