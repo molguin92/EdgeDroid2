@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from numpy import typing as npt
 
-from .base import BaseFrameSamplingModel, FrameSample, TBaseSampling, FrameTimings
+from .base import BaseSamplingPolicy, FrameSample, TBaseSampling, FrameTimings
 from ..timings import ExecutionTimeModel
 
 
@@ -120,7 +120,7 @@ def _aperiodic_sampling_instants(
         instants.append(tn)
 
 
-class BaseAdaptiveFrameSamplingModel(BaseFrameSamplingModel, metaclass=abc.ABCMeta):
+class BaseAdaptiveSamplingPolicy(BaseSamplingPolicy, metaclass=abc.ABCMeta):
     @classmethod
     def from_default_data(
         cls: Type[TBaseSampling],
@@ -143,7 +143,7 @@ class BaseAdaptiveFrameSamplingModel(BaseFrameSamplingModel, metaclass=abc.ABCMe
         execution_time_model: ExecutionTimeModel,
         success_tag: str = "success",
     ):
-        super(BaseAdaptiveFrameSamplingModel, self).__init__(
+        super(BaseAdaptiveSamplingPolicy, self).__init__(
             probabilities=probabilities,
             success_tag=success_tag,
         )
@@ -151,7 +151,7 @@ class BaseAdaptiveFrameSamplingModel(BaseFrameSamplingModel, metaclass=abc.ABCMe
         self._timing_model = execution_time_model.copy()
 
 
-class BaseAperiodicFrameSamplingModel(BaseAdaptiveFrameSamplingModel, abc.ABC):
+class BaseAperiodicFrameSamplingModel(BaseAdaptiveSamplingPolicy, abc.ABC):
     @abc.abstractmethod
     def get_alpha(self) -> float:
         ...
@@ -172,7 +172,6 @@ class BaseAperiodicFrameSamplingModel(BaseAdaptiveFrameSamplingModel, abc.ABC):
         ttf: float,
         # infinite: bool = False,
     ) -> Generator[FrameSample, FrameTimings, None]:
-
         step_start = time.monotonic()
         # step_rtts = deque()
 

@@ -1,172 +1,53 @@
 from typing import Any, Callable, Dict, NamedTuple
 
-import scipy.stats as stats
-
 from edgedroid.models import *
 
 
 class ExperimentConfig(NamedTuple):
     timing_model: ExecutionTimeModel
-    sampling_scheme: BaseFrameSamplingModel
+    sampling_scheme: BaseSamplingPolicy
     metadata: Dict[str, Any] = {}
 
 
 experiments: Dict[str, Callable[[], ExperimentConfig]] = {
-    "empirical-high-adaptive-power-empirical": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=AperiodicPowerFrameSamplingModel.from_default_data(
-            execution_time_model=EmpiricalExecutionTimeModel(neuroticism=None)
-        ),
+    "legacy": lambda: ExperimentConfig(
+        timing_model=LegacyETM(),
+        sampling_scheme=LegacySamplingPolicy.from_default_data(),
+        metadata={
+            "timing_model": "legacy",
+            "sampling_policy": "legacy",
+        },
+    ),
+    "empirical-low-neuro": lambda: ExperimentConfig(
+        timing_model=EmpiricalETM(neuroticism=0.0),
+        sampling_scheme=ZeroWaitSamplingPolicy.from_default_data(),
+        metadata={
+            "timing_model": "empirical-low",
+            "sampling_policy": "zero-wait",
+        },
+    ),
+    "empirical-high-neuro": lambda: ExperimentConfig(
+        timing_model=EmpiricalETM(neuroticism=1.0),
+        sampling_scheme=ZeroWaitSamplingPolicy.from_default_data(),
         metadata={
             "timing_model": "empirical-high",
-            "sampling_scheme": "adaptive-power-empirical",
+            "sampling_policy": "zero-wait",
         },
     ),
-    # ---
-    "empirical-high-adaptive-power-empirical-low": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=AperiodicPowerFrameSamplingModel.from_default_data(
-            execution_time_model=EmpiricalExecutionTimeModel(neuroticism=0.0)
-        ),
+    "fitted-low-neuro": lambda: ExperimentConfig(
+        timing_model=FittedETM(neuroticism=0.0),
+        sampling_scheme=ZeroWaitSamplingPolicy.from_default_data(),
         metadata={
-            "timing_model": "empirical-high",
-            "sampling_scheme": "adaptive-power-empirical-low",
+            "timing_model": "fitted-low",
+            "sampling_policy": "zero-wait",
         },
     ),
-    # ---
-    "empirical-high-adaptive-power-empirical-high": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=AperiodicPowerFrameSamplingModel.from_default_data(
-            execution_time_model=EmpiricalExecutionTimeModel(neuroticism=1.0)
-        ),
+    "fitted-high-neuro": lambda: ExperimentConfig(
+        timing_model=FittedETM(neuroticism=1.0),
+        sampling_scheme=ZeroWaitSamplingPolicy.from_default_data(),
         metadata={
-            "timing_model": "empirical-high",
-            "sampling_scheme": "adaptive-power-empirical-high",
-        },
-    ),
-    # ---
-    "empirical-high-adaptive-power-theoretical-exgaussian": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=AperiodicPowerFrameSamplingModel.from_default_data(
-            execution_time_model=TheoreticalExecutionTimeModel(
-                neuroticism=None, distribution=stats.exponnorm
-            )
-        ),
-        metadata={
-            "timing_model": "empirical-high",
-            "sampling_scheme": "adaptive-power-theoretical-exgaussian",
-        },
-    ),
-    # ---
-    "empirical-high-adaptive-power-theoretical-exgaussian-low": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=AperiodicPowerFrameSamplingModel.from_default_data(
-            execution_time_model=TheoreticalExecutionTimeModel(
-                neuroticism=0.0, distribution=stats.exponnorm
-            )
-        ),
-        metadata={
-            "timing_model": "empirical-high",
-            "sampling_scheme": "adaptive-power-theoretical-exgaussian-low",
-        },
-    ),
-    # ---
-    "empirical-high-adaptive-power-theoretical-exgaussian-high": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=AperiodicPowerFrameSamplingModel.from_default_data(
-            execution_time_model=TheoreticalExecutionTimeModel(
-                neuroticism=1.0, distribution=stats.exponnorm
-            )
-        ),
-        metadata={
-            "timing_model": "empirical-high",
-            "sampling_scheme": "adaptive-power-theoretical-exgaussian-high",
-        },
-    ),
-    "empirical-high-adaptive-power-fitted-naive-exgaussian": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=AperiodicPowerFrameSamplingModel.from_default_data(
-            execution_time_model=FittedNaiveExecutionTimeModel(
-                dist=stats.exponnorm,
-            )
-        ),
-        metadata={
-            "timing_model": "empirical-high",
-            "sampling_scheme": "adaptive-power-fitted-naive-exgaussian",
-        },
-    ),
-    "empirical-high-greedy": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=1.0),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={"timing_model": "empirical-high", "sampling_scheme": "greedy"},
-    ),
-    "empirical-low-greedy": lambda: ExperimentConfig(
-        timing_model=EmpiricalExecutionTimeModel(neuroticism=0.0),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={"timing_model": "empirical-low", "sampling_scheme": "greedy"},
-    ),
-    "theoretical-exgaussian-high-greedy": lambda: ExperimentConfig(
-        timing_model=TheoreticalExecutionTimeModel(
-            neuroticism=1.0, distribution=stats.exponnorm
-        ),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={
-            "timing_model": "theoretical-exgaussian-high",
-            "sampling_scheme": "greedy",
-        },
-    ),
-    "theoretical-exgaussian-low-greedy": lambda: ExperimentConfig(
-        timing_model=TheoreticalExecutionTimeModel(
-            neuroticism=0.0, distribution=stats.exponnorm
-        ),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={
-            "timing_model": "theoretical-exgaussian-low",
-            "sampling_scheme": "greedy",
-        },
-    ),
-    "fitted-naive-exgaussian-greedy": lambda: ExperimentConfig(
-        timing_model=FittedNaiveExecutionTimeModel(dist=stats.exponnorm),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={
-            "timing_model": "fitted-naive-exgaussian",
-            "sampling_scheme": "greedy",
-        },
-    ),
-    "rolling-ttf-low-greedy": lambda: ExperimentConfig(
-        timing_model=ExpKernelRollingTTFETModel(neuroticism=0.0),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={
-            "timing_model": "rolling-ttf-low",
-            "sampling_scheme": "greedy",
-        },
-    ),
-    "rolling-ttf-high-greedy": lambda: ExperimentConfig(
-        timing_model=ExpKernelRollingTTFETModel(neuroticism=1.0),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={
-            "timing_model": "rolling-ttf-high",
-            "sampling_scheme": "greedy",
-        },
-    ),
-    "fitted-rolling-ttf-exgaussian-low-greedy": lambda: ExperimentConfig(
-        timing_model=DistExpKernelRollingTTFETModel(
-            neuroticism=0.0, dist=stats.exponnorm
-        ),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={
-            "timing_model": "fitted-rolling-ttf-exgaussian-low",
-            "sampling_scheme": "greedy",
-        },
-    ),
-    "fitted-rolling-ttf-exgaussian-high-greedy": lambda: ExperimentConfig(
-        timing_model=DistExpKernelRollingTTFETModel(
-            neuroticism=1.0, dist=stats.exponnorm
-        ),
-        sampling_scheme=ZeroWaitFrameSamplingModel.from_default_data(),
-        metadata={
-            "timing_model": "fitted-rolling-ttf-exgaussian-high",
-            "sampling_scheme": "greedy",
+            "timing_model": "fitted-high",
+            "sampling_policy": "zero-wait",
         },
     ),
 }

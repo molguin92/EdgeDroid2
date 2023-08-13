@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import abc
 import itertools
-import random
 import time
 from collections import deque
 from os import PathLike
@@ -212,10 +211,10 @@ class FrameSample(NamedTuple):
     extra: Dict[str, Any]
 
 
-TBaseSampling = TypeVar("TBaseSampling", bound="BaseFrameSamplingModel")
+TBaseSampling = TypeVar("TBaseSampling", bound="BaseSamplingPolicy")
 
 
-class BaseFrameSamplingModel(abc.ABC):
+class BaseSamplingPolicy(abc.ABC):
     @classmethod
     def from_default_data(cls: Type[TBaseSampling], *args, **kwargs) -> TBaseSampling:
         from ... import data as e_data
@@ -352,7 +351,7 @@ class BaseFrameSamplingModel(abc.ABC):
         pass
 
 
-class ZeroWaitFrameSamplingModel(BaseFrameSamplingModel):
+class ZeroWaitSamplingPolicy(BaseSamplingPolicy):
     def step_iterator(
         self,
         target_time: float,
@@ -386,7 +385,7 @@ class ZeroWaitFrameSamplingModel(BaseFrameSamplingModel):
                 break
 
 
-class IdealFrameSamplingModel(ZeroWaitFrameSamplingModel):
+class IdealSamplingPolicy(ZeroWaitSamplingPolicy):
     def step_iterator(
         self,
         target_time: float,
@@ -407,7 +406,7 @@ class IdealFrameSamplingModel(ZeroWaitFrameSamplingModel):
                 break
 
 
-class HoldFrameSamplingModel(ZeroWaitFrameSamplingModel):
+class HoldSamplingPolicy(ZeroWaitSamplingPolicy):
     """
     Doesn't sample for a specified period of time at the beginning of each step.
     """
@@ -434,9 +433,7 @@ class HoldFrameSamplingModel(ZeroWaitFrameSamplingModel):
         hold_time_seconds: float,
         success_tag: str = "success",
     ):
-        super(HoldFrameSamplingModel, self).__init__(
-            probabilities, success_tag=success_tag
-        )
+        super(HoldSamplingPolicy, self).__init__(probabilities, success_tag=success_tag)
         self._hold_time = hold_time_seconds
 
     def step_iterator(
@@ -459,7 +456,7 @@ class HoldFrameSamplingModel(ZeroWaitFrameSamplingModel):
                 break
 
 
-class RegularFrameSamplingModel(ZeroWaitFrameSamplingModel):
+class RegularSamplingPolicy(ZeroWaitSamplingPolicy):
     """
     Samples in constant discrete time intervals. Defaults to zero-wait sampling if
     the time between calls to the step iterator is longer than the sampling interval!
@@ -487,7 +484,7 @@ class RegularFrameSamplingModel(ZeroWaitFrameSamplingModel):
         sampling_interval_seconds: float,
         success_tag: str = "success",
     ):
-        super(RegularFrameSamplingModel, self).__init__(
+        super(RegularSamplingPolicy, self).__init__(
             probabilities, success_tag=success_tag
         )
         self._interval = sampling_interval_seconds
@@ -525,7 +522,7 @@ class RegularFrameSamplingModel(ZeroWaitFrameSamplingModel):
                 break
 
 
-class LegacyFrameSamplingModel(ZeroWaitFrameSamplingModel):
+class LegacySamplingPolicy(ZeroWaitSamplingPolicy):
     rewind_seconds = 5.0
     padding_seconds = 1.0
 

@@ -19,8 +19,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from .. import data as e_data
-from ..models import EdgeDroidModel, FrameTimings, ZeroWaitFrameSamplingModel
-from ..models.timings import ConstantExecutionTimeModel
+from ..models import EdgeDroidModel, FrameTimings, ZeroWaitSamplingPolicy
+from ..models.timings import ConstantETM
 from gabriel_lego.api import FrameResult, LEGOTask
 
 
@@ -35,11 +35,11 @@ class EndToEndTest(unittest.TestCase):
         for tlen in (5, 50, -1):
             logger.debug(f"Testing trace {trace} (truncated to {tlen})")
             frameset = e_data.load_default_trace(trace, truncate=tlen)
-            frame_model = ZeroWaitFrameSamplingModel(
+            frame_model = ZeroWaitSamplingPolicy(
                 e_data.load_default_frame_probabilities()
             )
 
-            timing_model = ConstantExecutionTimeModel(0)
+            timing_model = ConstantETM(0)
 
             model = EdgeDroidModel(
                 frame_trace=frameset, frame_model=frame_model, timing_model=timing_model

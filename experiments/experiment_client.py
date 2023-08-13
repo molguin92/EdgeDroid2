@@ -30,7 +30,7 @@ from common import pack_frame, response_stream_unpack, enable_logging
 from edgedroid.models import (
     EdgeDroidModel,
     ExecutionTimeModel,
-    BaseFrameSamplingModel,
+    BaseSamplingPolicy,
     FrameTimings,
     ModelFrame,
 )
@@ -44,10 +44,9 @@ class NetworkEmulation:
         self,
         trace: str,
         timing_model: ExecutionTimeModel,
-        sampling_scheme: BaseFrameSamplingModel,
+        sampling_scheme: BaseSamplingPolicy,
         truncate: int = -1,
     ):
-
         trunc_log = f"(truncated to {truncate} steps)" if truncate >= 0 else ""
         logger.info(
             f"""

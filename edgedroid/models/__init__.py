@@ -12,59 +12,33 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import time
-from collections import deque
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Generator, Iterator, List, Optional
+from typing import List
 
-import numpy.typing as npt
-import pandas as pd
-
-from .sampling import (
-    AperiodicFrameSamplingModel,
-    AperiodicPowerFrameSamplingModel,
-    BaseFrameSamplingModel,
-    FrameSample,
-    FrameSet,
-    FrameTimings,
-    HoldFrameSamplingModel,
-    IdealFrameSamplingModel,
-    RegularFrameSamplingModel,
-    ZeroWaitFrameSamplingModel,
-)
-from .timings import (
-    ConstantExecutionTimeModel,
-    EmpiricalExecutionTimeModel,
-    ExecutionTimeModel,
-    FittedNaiveExecutionTimeModel,
-    NaiveExecutionTimeModel,
-    TheoreticalExecutionTimeModel,
-    preprocess_data,
-    ExpKernelRollingTTFETModel,
-    DistExpKernelRollingTTFETModel,
-)
+from .sampling import *
+from .timings import *
 
 __all__ = [
     "ExecutionTimeModel",
-    "TheoreticalExecutionTimeModel",
-    "EmpiricalExecutionTimeModel",
     "FrameSet",
-    "ZeroWaitFrameSamplingModel",
+    "ZeroWaitSamplingPolicy",
+    "LegacySamplingPolicy",
     "ModelFrame",
     "EdgeDroidModel",
     "preprocess_data",
-    "IdealFrameSamplingModel",
-    "BaseFrameSamplingModel",
-    "HoldFrameSamplingModel",
-    "RegularFrameSamplingModel",
+    "IdealSamplingPolicy",
+    "BaseSamplingPolicy",
+    "HoldSamplingPolicy",
+    "RegularSamplingPolicy",
     "AperiodicFrameSamplingModel",
     "AperiodicPowerFrameSamplingModel",
-    "ConstantExecutionTimeModel",
-    "NaiveExecutionTimeModel",
-    "FittedNaiveExecutionTimeModel",
+    "ConstantETM",
+    "FirstOrderETM",
+    "FirstOrderFittedETM",
     "FrameTimings",
-    "ExpKernelRollingTTFETModel",
-    "DistExpKernelRollingTTFETModel",
+    "EmpiricalETM",
+    "FittedETM",
+    "LegacyETM",
 ]
 
 
@@ -111,7 +85,7 @@ class EdgeDroidModel:
         self,
         frame_trace: FrameSet,
         timing_model: ExecutionTimeModel,
-        frame_model: BaseFrameSamplingModel,
+        frame_model: BaseSamplingPolicy,
     ):
         """
         Parameters

@@ -20,7 +20,7 @@ import pandas as pd
 from numpy import testing as nptesting
 
 from ..data import load_default_frame_probabilities
-from ..models import ZeroWaitFrameSamplingModel
+from ..models import ZeroWaitSamplingPolicy
 from ..models.sampling.adaptive import _aperiodic_instant_iterator
 
 
@@ -29,7 +29,7 @@ class TestFrameModel(unittest.TestCase):
         # load data
         self.probs = load_default_frame_probabilities()
 
-        self.model = ZeroWaitFrameSamplingModel(self.probs)
+        self.model = ZeroWaitSamplingPolicy(self.probs)
 
         self.probs["interval"] = pd.IntervalIndex.from_arrays(
             left=self.probs["bin_start"],

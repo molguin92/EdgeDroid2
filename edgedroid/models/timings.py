@@ -17,9 +17,8 @@ from __future__ import annotations
 import abc
 import copy
 import enum
-import random
 from collections import deque
-from typing import Any, Dict, Iterator, Tuple, TypeVar, Optional
+from typing import Any, Dict, Iterator, Tuple, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -278,13 +277,13 @@ class ExecutionTimeModel(Iterator[float], metaclass=abc.ABCMeta):
         pass
 
 
-class ConstantExecutionTimeModel(ExecutionTimeModel):
+class ConstantETM(ExecutionTimeModel):
     """
     Returns a constant execution time.
     """
 
     def __init__(self, execution_time_seconds: float):
-        super(ConstantExecutionTimeModel, self).__init__()
+        super(ConstantETM, self).__init__()
         self._exec_time = execution_time_seconds
 
     def get_model_params(self) -> Dict[str, Any]:
@@ -316,13 +315,13 @@ class ConstantExecutionTimeModel(ExecutionTimeModel):
         return float(instant > self._exec_time)
 
 
-class NaiveExecutionTimeModel(ExecutionTimeModel):
+class FirstOrderETM(ExecutionTimeModel):
     """
     Returns execution times sampled from a simple distribution.
     """
 
     def __init__(self):
-        super(NaiveExecutionTimeModel, self).__init__()
+        super(FirstOrderETM, self).__init__()
         data, *_ = self.get_data()
         self._exec_times = data["exec_time"].to_numpy()
         self._rng = np.random.default_rng()
@@ -359,12 +358,12 @@ class NaiveExecutionTimeModel(ExecutionTimeModel):
         return self._exec_times[self._exec_times < instant].size / self._exec_times.size
 
 
-class FittedNaiveExecutionTimeModel(NaiveExecutionTimeModel):
+class FirstOrderFittedETM(FirstOrderETM):
     def __init__(
         self,
         dist: stats.rv_continuous = stats.exponnorm,
     ):
-        super(FittedNaiveExecutionTimeModel, self).__init__()
+        super(FirstOrderFittedETM, self).__init__()
 
         *self._dist_args, self._loc, self._scale = dist.fit(self._exec_times)
         self._dist: stats.rv_continuous = dist.freeze(
@@ -406,293 +405,6 @@ class FittedNaiveExecutionTimeModel(NaiveExecutionTimeModel):
         return float(self._dist.cdf(instant))
 
 
-class EmpiricalExecutionTimeModel(ExecutionTimeModel):
-    """
-    Implementation of an execution time model which returns execution times
-    sampled from the empirical distributions of the underlying data.
-    """
-
-    def __init__(
-        self,
-        neuroticism: float | None,
-        state_checks_enabled: bool = True,
-    ):
-        """
-        Parameters
-        ----------
-        neuroticism
-            A normalized value of neuroticism for this model.
-        """
-
-        super().__init__()
-        data = preprocess_data(*self.get_data())
-
-        # unique bins (interval arrays)
-        self._duration_bins = data["duration"].unique()
-        self._impairment_bins = data["impairment"].unique()
-        self._neuro_bins = data["neuroticism"].unique()
-
-        min_imp, max_imp = data["impairment"].min(), data["impairment"].max()
-        self._min_dur = data["duration"].min()
-
-        # first, we filter on neuroticism
-        if neuroticism is not None:
-            data = data[data["neuroticism"].array.contains(neuroticism)]
-            self._neuro_binned = data["neuroticism"].iloc[0]
-        else:
-            self._neuro_binned = None
-
-        self._neuroticism = neuroticism
-
-        # next, prepare views
-        self._data_views = {}
-        for (imp, dur), df in data.groupby(["impairment", "duration"]):
-            if (len(df.index) == 0) and state_checks_enabled:
-                raise ModelException(
-                    f"Combination of impairment {imp} and duration "
-                    f"{dur} has no data!"
-                )
-
-            exec_times = df["next_exec_time"].to_numpy()
-
-            # views for the beginning of the task, no transition
-            # for that, we just use all the data for impairment and duration
-            self._data_views[(imp, dur, Transition.NONE.value)] = exec_times
-
-            if dur > self._min_dur:
-                # transition only matters for the first level of duration
-                self._data_views[(imp, dur, Transition.L2H.value)] = exec_times
-                self._data_views[(imp, dur, Transition.H2L.value)] = exec_times
-            else:
-                for tran, tdf in df.groupby("transition"):
-                    if tran == Transition.NONE.value:
-                        continue
-                    elif (len(tdf.index) == 0) and state_checks_enabled:
-                        if (
-                            ((imp == min_imp) and (tran == Transition.H2L.value))
-                            or ((imp == max_imp) and (tran == Transition.L2H.value))
-                            or ((imp != min_imp) and (imp != max_imp))
-                        ):
-                            raise ModelException(
-                                f"Combination of impairment {imp}, duration "
-                                f"{dur}, and transition {tran} has no data!"
-                            )
-
-                        # if we reach here it's a state which is impossible to reach,
-                        # so we don't need to store anything
-                    else:
-                        self._data_views[(imp, dur, tran)] = tdf[
-                            "next_exec_time"
-                        ].to_numpy()
-
-        self._imp_memory = deque()
-        self._seq = 0
-        self._ttf = 0.0
-        self._transition = Transition.NONE.value
-        # self.reset()
-
-        # random state
-        self._rng = np.random.default_rng()
-
-    def get_model_params(self) -> Dict[str, Any]:
-        return {
-            "neuroticism": (
-                float(self._neuroticism) if self._neuroticism is not None else None
-            ),
-            "binned_neuroticism": (
-                _serialize_interval(self._neuro_binned)
-                if self._neuro_binned is not None
-                else None
-            ),
-            "neuro_bins": [_serialize_interval(iv) for iv in self._neuro_bins],
-            "impairment_bins": [
-                _serialize_interval(iv) for iv in self._impairment_bins
-            ],
-            "duration_bins": [_serialize_interval(iv) for iv in self._duration_bins],
-        }
-
-    def copy(self: TTimingModel) -> TTimingModel:
-        model_copy = super(EmpiricalExecutionTimeModel, self).copy()
-
-        # make sure to reinit the random number generator
-        model_copy._rng = np.random.default_rng()
-        return model_copy
-
-    def reset(self) -> None:
-        # initial state
-        self._imp_memory.clear()
-        self._seq = 0
-        self._ttf = 0.0
-        self._transition = Transition.NONE.value
-        self._rng = np.random.default_rng()
-
-    def advance(self, ttf: float | int) -> TTimingModel:
-        self._ttf = ttf
-        new_imp = self._impairment_bins[self._impairment_bins.contains(ttf)][0]
-
-        if len(self._imp_memory) < 1:
-            # not enough steps to calculate a transition
-            # must be first step
-            self._seq = 0
-            self._transition = Transition.NONE.value
-        elif self._imp_memory[-1] < new_imp:
-            self._imp_memory.clear()
-            self._transition = Transition.L2H.value
-        elif self._imp_memory[-1] > new_imp:
-            self._imp_memory.clear()
-            self._transition = Transition.H2L.value
-
-        self._seq += 1
-        self._imp_memory.append(new_imp)
-        # self._binned_duration = self._duration_bins[
-        #     self._duration_bins.contains(self._duration)
-        # ][0]
-
-        return self
-
-    def _get_data_for_current_state(self) -> npt.NDArray:
-        # get the appropriate data view
-        binned_duration = self._duration_bins[
-            self._duration_bins.contains(len(self._imp_memory))
-        ][0]
-
-        if binned_duration == self._min_dur:
-            transition = Transition.NONE.value
-        else:
-            transition = self._transition
-
-        try:
-            return self._data_views[(self._imp_memory[-1], binned_duration, transition)]
-        except KeyError:
-            raise ModelException(
-                f"No data for model state: {self.state_info()}! "
-                f"Perhaps you forgot to advance() this model after "
-                f"initialization?"
-            )
-
-    def get_execution_time(self) -> float:
-        # sample from the data and return an execution time in seconds
-        return self._rng.choice(self._get_data_for_current_state(), replace=False)
-
-    def get_expected_execution_time(self) -> float:
-        return self._get_data_for_current_state().mean()
-
-    def get_mean_execution_time(self) -> float:
-        return self.get_expected_execution_time()
-
-    def state_info(self) -> Dict[str, Any]:
-        try:
-            binned_duration = self._duration_bins[
-                self._duration_bins.contains(len(self._imp_memory))
-            ][0]
-
-            return {
-                "seq": self._seq,
-                "neuroticism": self._neuro_binned,
-                "neuroticism_raw": self._neuroticism,
-                "ttf": self._ttf,
-                "impairment": self._imp_memory[-1],
-                "transition": self._transition,
-                "duration": binned_duration,
-                "duration_raw": len(self._imp_memory),
-            }
-        except Exception as e:
-            raise ModelException(
-                f"Invalid model state. "
-                f"Perhaps you forgot to advance() this model after "
-                f"initialization?"
-            ) from e
-
-    def get_cdf_at_instant(self, instant: float) -> float:
-        exec_times = self._get_data_for_current_state()
-        return exec_times[exec_times < instant].size / exec_times.size
-
-
-class TheoreticalExecutionTimeModel(EmpiricalExecutionTimeModel):
-    """
-    Implementation of an execution time model which returns execution times
-    sampled from theoretical distributions fitted to the underlying data.
-    """
-
-    def __init__(
-        self,
-        neuroticism: float | None,
-        distribution: stats.rv_continuous = stats.exponnorm,
-        state_checks_enabled: bool = True,
-    ):
-        """
-        Parameters
-        ----------
-        neuroticism
-            A normalized value of neuroticism for this model.
-        distribution
-            An scipy.stats.rv_continuous object corresponding to the
-            distribution to fit to the empirical data. By default, it
-            corresponds to the Exponentially Modified Gaussian.
-        """
-
-        super(TheoreticalExecutionTimeModel, self).__init__(
-            neuroticism=neuroticism,
-            state_checks_enabled=state_checks_enabled,
-        )
-
-        # at this point, the views have been populated with data according to
-        # the binnings
-        # now we fit distributions to each data view
-
-        self._dists = {}
-        for imp_dur_trans, exec_times in self._data_views.items():
-            # get the execution times, then fit the distribution to the samples
-            *params, loc, scale = distribution.fit(exec_times)
-            self._dists[imp_dur_trans] = distribution.freeze(
-                *params,
-                loc=loc,
-                scale=scale,
-            )
-
-        self._distribution = distribution
-
-    def get_model_params(self) -> Dict[str, Any]:
-        params = super(TheoreticalExecutionTimeModel, self).get_model_params()
-        params["distribution"] = str(self._distribution.name)
-        return params
-
-    def _get_dist_for_current_state(self) -> stats.rv_continuous:
-        # get the appropriate distribution
-        binned_duration = self._duration_bins[
-            self._duration_bins.contains(len(self._imp_memory))
-        ][0]
-
-        if binned_duration == self._min_dur:
-            transition = Transition.NONE.value
-        else:
-            transition = self._transition
-
-        try:
-            return self._dists[(self._imp_memory[-1], binned_duration, transition)]
-        except KeyError:
-            raise ModelException(
-                f"No data for model state: {self.state_info()}! "
-                f"Perhaps you forgot to advance() this model after "
-                f"initialization?"
-            )
-
-    def get_execution_time(self) -> float:
-        # sample from the dist and return an execution time in seconds
-        # note that we can't return negative values, so we'll end up changing the
-        # distribution slightly by truncating at 0
-        return max(self._get_dist_for_current_state().rvs(), 0)
-
-    def get_expected_execution_time(self) -> float:
-        return self._get_dist_for_current_state().expect()
-
-    def get_mean_execution_time(self) -> float:
-        return self._get_dist_for_current_state().mean()
-
-    def get_cdf_at_instant(self, instant: float) -> float:
-        return float(self._get_dist_for_current_state().cdf(instant))
-
-
 def _convolve_kernel(arr: pd.Series, kernel: npt.NDArray):
     index = arr.index
     arr = arr.to_numpy()
@@ -702,7 +414,7 @@ def _convolve_kernel(arr: pd.Series, kernel: npt.NDArray):
     return pd.Series(result[kernel.size :], index=index)
 
 
-class ExpKernelRollingTTFETModel(ExecutionTimeModel):
+class EmpiricalETM(ExecutionTimeModel):
     @staticmethod
     def make_kernel(window: int, exp_factor: float = 0.7):
         kernel = np.zeros(window)
@@ -797,7 +509,7 @@ class ExpKernelRollingTTFETModel(ExecutionTimeModel):
         return exec_times[exec_times < instant].size / exec_times.size
 
 
-class DistExpKernelRollingTTFETModel(ExpKernelRollingTTFETModel):
+class FittedETM(EmpiricalETM):
     def __init__(
         self,
         neuroticism: float | None,
@@ -805,7 +517,7 @@ class DistExpKernelRollingTTFETModel(ExpKernelRollingTTFETModel):
         window: int = 8,
         ttf_levels: int = 7,
     ):
-        super(DistExpKernelRollingTTFETModel, self).__init__(
+        super(FittedETM, self).__init__(
             neuroticism=neuroticism, window=window, ttf_levels=ttf_levels
         )
 
@@ -830,7 +542,7 @@ class DistExpKernelRollingTTFETModel(ExpKernelRollingTTFETModel):
         return self._dists[self._get_binned_ttf()].mean()
 
     def get_model_params(self) -> Dict[str, Any]:
-        params = super(DistExpKernelRollingTTFETModel, self).get_model_params()
+        params = super(FittedETM, self).get_model_params()
         params["distribution"] = self._distribution.name
         return params
 
@@ -838,7 +550,7 @@ class DistExpKernelRollingTTFETModel(ExpKernelRollingTTFETModel):
         return float(self._dists[self._get_binned_ttf()].cdf(instant))
 
 
-class LegacyExecutionTimeModel(ExpKernelRollingTTFETModel):
+class LegacyETM(EmpiricalETM):
     """
     EdgeDroid 1.0 execution time model.
     """
@@ -846,12 +558,11 @@ class LegacyExecutionTimeModel(ExpKernelRollingTTFETModel):
     def __init__(
         self,
         seed: int = 4,
-        neuroticism: float = 0.5,
         window: int = 12,
         ttf_levels: int = 7,
     ):
-        super(ExpKernelRollingTTFETModel, self).__init__(
-            neuroticism=neuroticism,
+        super(EmpiricalETM, self).__init__(
+            neuroticism=0.0,
             window=window,
             ttf_levels=ttf_levels,
         )

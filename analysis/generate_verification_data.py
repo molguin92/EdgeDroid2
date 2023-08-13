@@ -12,23 +12,19 @@ import multiprocess as mp
 from tqdm import tqdm
 
 from edgedroid.models import (
-    DistExpKernelRollingTTFETModel,
+    FittedETM,
     ExecutionTimeModel,
-    ExpKernelRollingTTFETModel,
+    EmpiricalETM,
 )
 import edgedroid.data as e_data
 
 __all__ = ["models"]
 
 models: Dict[str, Callable[[], ExecutionTimeModel]] = {
-    "Low neuro": lambda: ExpKernelRollingTTFETModel(neuroticism=0.0),
-    "High neuro": lambda: ExpKernelRollingTTFETModel(neuroticism=1.0),
-    "ExGaussian fit,\nlow neuro": lambda: DistExpKernelRollingTTFETModel(
-        neuroticism=0.0
-    ),
-    "ExGaussian fit,\nhigh neuro": lambda: DistExpKernelRollingTTFETModel(
-        neuroticism=1.0
-    ),
+    "Low neuro": lambda: EmpiricalETM(neuroticism=0.0),
+    "High neuro": lambda: EmpiricalETM(neuroticism=1.0),
+    "ExGaussian fit,\nlow neuro": lambda: FittedETM(neuroticism=0.0),
+    "ExGaussian fit,\nhigh neuro": lambda: FittedETM(neuroticism=1.0),
 }
 
 
