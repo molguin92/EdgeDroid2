@@ -436,8 +436,10 @@ class EmpiricalETM(ExecutionTimeModel):
 
         # roll the ttfs
         self._kernel = self.make_kernel(window)
-        data["rolling_ttf"] = data.groupby("run_id")["ttf"].apply(
-            lambda arr: _convolve_kernel(arr, self._kernel)
+        data["rolling_ttf"] = (
+            data.groupby("run_id")["ttf"]
+            .apply(lambda arr: _convolve_kernel(arr, self._kernel))
+            .droplevel(axis=0, level=0)
         )
         _, ttf_bins = pd.qcut(data["rolling_ttf"], ttf_levels, retbins=True)
         ttf_bins[0], ttf_bins[-1] = -np.inf, np.inf
@@ -561,7 +563,7 @@ class LegacyETM(EmpiricalETM):
         window: int = 12,
         ttf_levels: int = 7,
     ):
-        super(EmpiricalETM, self).__init__(
+        super(LegacyETM, self).__init__(
             neuroticism=0.0,
             window=window,
             ttf_levels=ttf_levels,
