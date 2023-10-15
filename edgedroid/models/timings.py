@@ -23,6 +23,7 @@ from typing import Any, Dict, Iterator, Tuple, TypeVar
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from nptyping import Shape
 from pandas import arrays
 from scipy import stats
 
@@ -414,6 +415,16 @@ def _convolve_kernel(arr: pd.Series, kernel: npt.NDArray):
     return pd.Series(result[kernel.size :], index=index)
 
 
+def _winsorize(arr: npt.NDArray) -> npt.NDArray:
+    low_bound = np.percentile(arr, 5)
+    high_bound = np.percentile(arr, 95)
+
+    arr[arr < low_bound] = low_bound
+    arr[arr > high_bound] = high_bound
+
+    return arr
+
+
 class EmpiricalETM(ExecutionTimeModel):
     @staticmethod
     def make_kernel(window: int, exp_factor: float = 0.7):
@@ -427,7 +438,8 @@ class EmpiricalETM(ExecutionTimeModel):
         self,
         neuroticism: float | None,
         window: int = 12,
-        ttf_levels: int = 7,
+        ttf_levels: int = 4,
+        winsorize: bool = True,
     ):
         data, neuro_bins, *_ = self.get_data()
 
@@ -456,7 +468,11 @@ class EmpiricalETM(ExecutionTimeModel):
         # prepare views
         self._views: Dict[pd.Interval, npt.NDArray] = {}
         for binned_rolling_ttf, df in data.groupby("binned_rolling_ttf", observed=True):
-            self._views[binned_rolling_ttf] = df["next_exec_time"].to_numpy()
+            exec_times = df["next_exec_time"].to_numpy()
+            if winsorize:
+                exec_times = _winsorize(exec_times)
+
+            self._views[binned_rolling_ttf] = exec_times
 
         self._window = np.zeros(window, dtype=float)
         self._steps = 0
@@ -516,11 +532,15 @@ class FittedETM(EmpiricalETM):
         self,
         neuroticism: float | None,
         dist: stats.rv_continuous = stats.exponnorm,
-        window: int = 8,
-        ttf_levels: int = 7,
+        window: int = 12,
+        ttf_levels: int = 4,
+        winsorize: bool = True,
     ):
         super(FittedETM, self).__init__(
-            neuroticism=neuroticism, window=window, ttf_levels=ttf_levels
+            neuroticism=neuroticism,
+            window=window,
+            ttf_levels=ttf_levels,
+            winsorize=winsorize,
         )
 
         self._dists: Dict[pd.Interval, stats.rv_continuous] = {}
