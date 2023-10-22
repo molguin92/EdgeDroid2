@@ -23,7 +23,6 @@ from typing import Any, Dict, Iterator, Tuple, TypeVar
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from nptyping import Shape
 from pandas import arrays
 from scipy import stats
 
@@ -415,14 +414,31 @@ def _convolve_kernel(arr: pd.Series, kernel: npt.NDArray):
     return pd.Series(result[kernel.size :], index=index)
 
 
-def _winsorize(arr: npt.NDArray) -> npt.NDArray:
-    low_bound = np.percentile(arr, 5)
-    high_bound = np.percentile(arr, 95)
+def _winsorize(
+    arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
+) -> npt.NDArray:
+    low_bound = np.percentile(arr, low_percentile)
+    high_bound = np.percentile(arr, high_percentile)
 
     arr[arr < low_bound] = low_bound
     arr[arr > high_bound] = high_bound
 
     return arr
+
+
+def _truncate(
+    arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
+) -> npt.NDArray:
+    low_bound = np.percentile(arr, low_percentile)
+    high_bound = np.percentile(arr, high_percentile)
+
+    return np.copy(arr[np.logical_and(arr >= low_bound, arr <= high_bound)])
+
+
+class CleanupMode(enum.Enum):
+    NONE = enum.auto()
+    WINSORIZE = enum.auto()
+    TRUNCATE = enum.auto()
 
 
 class EmpiricalETM(ExecutionTimeModel):
@@ -439,7 +455,7 @@ class EmpiricalETM(ExecutionTimeModel):
         neuroticism: float | None,
         window: int = 12,
         ttf_levels: int = 4,
-        winsorize: bool = True,
+        cleanup: CleanupMode = CleanupMode.WINSORIZE,
     ):
         data, neuro_bins, *_ = self.get_data()
 
@@ -469,8 +485,11 @@ class EmpiricalETM(ExecutionTimeModel):
         self._views: Dict[pd.Interval, npt.NDArray] = {}
         for binned_rolling_ttf, df in data.groupby("binned_rolling_ttf", observed=True):
             exec_times = df["next_exec_time"].to_numpy()
-            if winsorize:
+
+            if cleanup == CleanupMode.WINSORIZE:
                 exec_times = _winsorize(exec_times)
+            elif cleanup == CleanupMode.TRUNCATE:
+                exec_times = _truncate(exec_times)
 
             self._views[binned_rolling_ttf] = exec_times
 
@@ -534,13 +553,13 @@ class FittedETM(EmpiricalETM):
         dist: stats.rv_continuous = stats.exponnorm,
         window: int = 12,
         ttf_levels: int = 4,
-        winsorize: bool = True,
+        cleanup: CleanupMode = CleanupMode.WINSORIZE,
     ):
         super(FittedETM, self).__init__(
             neuroticism=neuroticism,
             window=window,
             ttf_levels=ttf_levels,
-            winsorize=winsorize,
+            cleanup=cleanup,
         )
 
         self._dists: Dict[pd.Interval, stats.rv_continuous] = {}
