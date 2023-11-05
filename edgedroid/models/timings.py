@@ -62,11 +62,11 @@ class Transition(str, enum.Enum):
 
 
 def preprocess_data(
-    exec_time_data: pd.DataFrame,
-    neuro_bins: arrays.IntervalArray | pd.IntervalIndex,
-    impair_bins: arrays.IntervalArray | pd.IntervalIndex,
-    duration_bins: arrays.IntervalArray | pd.IntervalIndex,
-    # transition_fade_distance: Optional[int] = None,
+        exec_time_data: pd.DataFrame,
+        neuro_bins: arrays.IntervalArray | pd.IntervalIndex,
+        impair_bins: arrays.IntervalArray | pd.IntervalIndex,
+        duration_bins: arrays.IntervalArray | pd.IntervalIndex,
+        # transition_fade_distance: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Processes a DataFrame with raw execution time data into a DataFrame
@@ -167,12 +167,12 @@ class ExecutionTimeModel(Iterator[float], metaclass=abc.ABCMeta):
 
     @staticmethod
     def get_data() -> (
-        Tuple[
-            pd.DataFrame,
-            pd.arrays.IntervalArray,
-            pd.arrays.IntervalArray,
-            pd.arrays.IntervalArray,
-        ]
+            Tuple[
+                pd.DataFrame,
+                pd.arrays.IntervalArray,
+                pd.arrays.IntervalArray,
+                pd.arrays.IntervalArray,
+            ]
     ):
         import edgedroid.data as e_data
 
@@ -360,8 +360,8 @@ class FirstOrderETM(ExecutionTimeModel):
 
 class FirstOrderFittedETM(FirstOrderETM):
     def __init__(
-        self,
-        dist: stats.rv_continuous = stats.exponnorm,
+            self,
+            dist: stats.rv_continuous = stats.exponnorm,
     ):
         super(FirstOrderFittedETM, self).__init__()
 
@@ -405,17 +405,8 @@ class FirstOrderFittedETM(FirstOrderETM):
         return float(self._dist.cdf(instant))
 
 
-def _convolve_kernel(arr: pd.Series, kernel: npt.NDArray):
-    index = arr.index
-    arr = arr.to_numpy()
-    arr = np.concatenate([np.zeros(kernel.size) + arr[0], arr])
-    lkernel = np.concatenate([np.zeros(kernel.size - 1), kernel / kernel.sum()])
-    result = np.convolve(arr, lkernel, "same")
-    return pd.Series(result[kernel.size :], index=index)
-
-
 def _winsorize(
-    arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
+        arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
 ) -> npt.NDArray:
     low_bound = np.percentile(arr, low_percentile)
     high_bound = np.percentile(arr, high_percentile)
@@ -427,7 +418,7 @@ def _winsorize(
 
 
 def _truncate(
-    arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
+        arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
 ) -> npt.NDArray:
     low_bound = np.percentile(arr, low_percentile)
     high_bound = np.percentile(arr, high_percentile)
@@ -441,21 +432,54 @@ class CleanupMode(enum.Enum):
     TRUNCATE = enum.auto()
 
 
-class EmpiricalETM(ExecutionTimeModel):
-    @staticmethod
-    def make_kernel(window: int, exp_factor: float = 0.7):
-        kernel = np.zeros(window)
-        for i in range(window):
+class TTFWindowKernel(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def window_size(self) -> int:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def weights(self) -> npt.NDArray:
+        pass
+
+    def convolve(self, arr: pd.Series) -> pd.Series:
+        kernel = self.weights
+        index = arr.index
+        arr = arr.to_numpy()
+        arr = np.concatenate([np.zeros(kernel.size) + arr[0], arr])
+        lkernel = np.concatenate([np.zeros(kernel.size - 1), kernel / kernel.sum()])
+        result = np.convolve(arr, lkernel, "same")
+        return pd.Series(result[kernel.size:], index=index)
+
+    def weighted_average(self, window: npt.NDArray) -> float:
+        return np.multiply(window, self.weights).sum()
+
+
+class ExponentialTTFWindowKernel(TTFWindowKernel):
+    def __init__(self, window_size: int, exp_factor: float = 0.7):
+        kernel = np.zeros(window_size)
+        for i in range(window_size):
             kernel[i] = np.exp(-exp_factor * i)
 
-        return kernel / kernel.sum()
+        self._kernel = kernel / kernel.sum()
 
+    @property
+    def window_size(self) -> int:
+        return self._kernel.size
+
+    @property
+    def weights(self) -> npt.NDArray:
+        return self._kernel
+
+
+class EmpiricalETM(ExecutionTimeModel):
     def __init__(
-        self,
-        neuroticism: float | None,
-        window: int = 12,
-        ttf_levels: int = 4,
-        cleanup: CleanupMode = CleanupMode.WINSORIZE,
+            self,
+            kernel: TTFWindowKernel,
+            neuroticism: float | None,
+            ttf_levels: int = 4,
+            cleanup: CleanupMode = CleanupMode.WINSORIZE,
     ):
         data, neuro_bins, *_ = self.get_data()
 
@@ -463,10 +487,10 @@ class EmpiricalETM(ExecutionTimeModel):
         data = data.dropna()
 
         # roll the ttfs
-        self._kernel = self.make_kernel(window)
+        self._kernel = kernel
         data["rolling_ttf"] = (
             data.groupby("run_id")["ttf"]
-            .apply(lambda arr: _convolve_kernel(arr, self._kernel))
+            .apply(kernel.convolve)
             .droplevel(axis=0, level=0)
         )
         _, ttf_bins = pd.qcut(data["rolling_ttf"], ttf_levels, retbins=True)
@@ -493,7 +517,7 @@ class EmpiricalETM(ExecutionTimeModel):
 
             self._views[binned_rolling_ttf] = exec_times
 
-        self._window = np.zeros(window, dtype=float)
+        self._window = np.zeros(kernel.window_size, dtype=float)
         self._steps = 0
         self._neuroticism = neuroticism
         self._rng = np.random.default_rng()
@@ -508,7 +532,7 @@ class EmpiricalETM(ExecutionTimeModel):
         return self
 
     def _get_binned_ttf(self) -> pd.Interval:
-        weighted_ttf = np.multiply(self._window, self._kernel).sum()
+        weighted_ttf = self._kernel.weighted_average(self._window)
         return self._ttf_bins[self._ttf_bins.contains(weighted_ttf)][0]
 
     def get_execution_time(self) -> float:
@@ -523,8 +547,8 @@ class EmpiricalETM(ExecutionTimeModel):
     def state_info(self) -> Dict[str, Any]:
         return {
             "ttf_window": self._window,
-            "weights": self._kernel,
-            "weighted_ttf": np.multiply(self._window, self._kernel).sum(),
+            "weights": self._kernel.weights,
+            "weighted_ttf": self._kernel.weighted_average(self._window),
             "neuroticism": self._neuroticism,
             "steps": self._steps,
         }
@@ -539,6 +563,7 @@ class EmpiricalETM(ExecutionTimeModel):
             "neuroticism": self._neuroticism,
             "window": self._window.size,
             "ttf_levels": len(self._ttf_bins),
+            "kernel": self._kernel.__class__.__name__,
         }
 
     def get_cdf_at_instant(self, instant: float) -> float:
@@ -548,16 +573,16 @@ class EmpiricalETM(ExecutionTimeModel):
 
 class FittedETM(EmpiricalETM):
     def __init__(
-        self,
-        neuroticism: float | None,
-        dist: stats.rv_continuous = stats.exponnorm,
-        window: int = 12,
-        ttf_levels: int = 4,
-        cleanup: CleanupMode = CleanupMode.WINSORIZE,
+            self,
+            kernel: TTFWindowKernel,
+            neuroticism: float | None,
+            dist: stats.rv_continuous = stats.exponnorm,
+            ttf_levels: int = 4,
+            cleanup: CleanupMode = CleanupMode.WINSORIZE,
     ):
         super(FittedETM, self).__init__(
+            kernel=kernel,
             neuroticism=neuroticism,
-            window=window,
             ttf_levels=ttf_levels,
             cleanup=cleanup,
         )
@@ -597,14 +622,14 @@ class LegacyETM(EmpiricalETM):
     """
 
     def __init__(
-        self,
-        seed: int = 4,
-        window: int = 12,
-        ttf_levels: int = 7,
+            self,
+            kernel: TTFWindowKernel,
+            seed: int = 4,
+            ttf_levels: int = 7,
     ):
         super(LegacyETM, self).__init__(
+            kernel=kernel,
             neuroticism=0.0,
-            window=window,
             ttf_levels=ttf_levels,
         )
         # as long as the seed is the same will generate the same sequence of execution times
