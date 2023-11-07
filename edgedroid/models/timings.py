@@ -18,7 +18,7 @@ import abc
 import copy
 import enum
 from collections import deque
-from typing import Any, Dict, Iterator, Tuple, TypeVar
+from typing import Any, Dict, Iterator, Tuple, TypeVar, Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -405,6 +405,26 @@ class FirstOrderFittedETM(FirstOrderETM):
         return float(self._dist.cdf(instant))
 
 
+class FirstOrderAggregateETM(FirstOrderETM):
+    def __init__(self, aggregate_fn: Callable[[npt.NDArray], float]):
+        super().__init__()
+        self._agg_exec_time = aggregate_fn(self._exec_times)
+
+    def get_execution_time(self) -> float:
+        return self._agg_exec_time
+
+    def get_model_params(self) -> Dict[str, Any]:
+        return {
+            "execution_time_seconds": self._agg_exec_time,
+        }
+
+    def get_expected_execution_time(self) -> float:
+        return self._agg_exec_time
+
+    def get_cdf_at_instant(self, instant: float) -> float:
+        return float(instant < self._agg_exec_time)
+
+
 def _winsorize(
         arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
 ) -> npt.NDArray:
@@ -448,7 +468,7 @@ class TTFWindowKernel(abc.ABC):
         index = arr.index
         arr = arr.to_numpy()
         arr = np.concatenate([np.zeros(kernel.size) + arr[0], arr])
-        lkernel = np.concatenate([np.zeros(kernel.size - 1), kernel / kernel.sum()])
+        lkernel = np.concatenate([np.zeros(kernel.size - 1), kernel])
         result = np.convolve(arr, lkernel, "same")
         return pd.Series(result[kernel.size:], index=index)
 
@@ -472,6 +492,65 @@ class ExponentialTTFWindowKernel(TTFWindowKernel):
     def weights(self) -> npt.NDArray:
         return self._kernel
 
+
+class LinearTTFWindowKernel(TTFWindowKernel):
+    def __init__(self, window_size: int, max_relative_weight: float | int, min_relative_weight: float | int = 1.0):
+        # formula for a line intersecting two points (x1 y1) (x2 y2):
+        # (y1 - y2) / (x1 - x2) = slope
+        # y1 - (x1 * slope) = c
+        # here we can say x1 = 0, x2 = (window_size - 1)
+        max_relative_weight = float(max_relative_weight)
+        min_relative_weight = float(min_relative_weight)
+
+        slope = (max_relative_weight - min_relative_weight) / (1 - window_size)
+        c = max_relative_weight
+
+        kernel = np.zeros(window_size)
+        for x in range(window_size):
+            kernel[x] = (x * slope) + c
+
+        self._kernel = kernel / kernel.sum()
+
+    @property
+    def window_size(self) -> int:
+        return self._kernel.size
+
+    @property
+    def weights(self) -> npt.NDArray:
+        return self._kernel
+
+
+class AverageTTFWindowKernel(TTFWindowKernel):
+    def __init__(self, window_size: int):
+        kernel = np.ones(window_size)
+        self._kernel = kernel / kernel.sum()
+
+    @property
+    def weights(self) -> npt.NDArray:
+        return self._kernel
+
+    @property
+    def window_size(self) -> int:
+        return self._kernel.size
+
+
+class SimpleTTFWindowKernel(TTFWindowKernel):
+    def __init__(self, relative_weights: npt.NDArray):
+        kernel = relative_weights.copy()
+        self._kernel = kernel / kernel.sum()
+
+    @property
+    def weights(self) -> npt.NDArray:
+        return self._kernel
+
+    @property
+    def window_size(self) -> int:
+        return self._kernel.size
+
+
+# class LinearTTFWindowKernel(TTFWindowKernel):
+#     def __init__(self, window_size: int, max_weight: float, min_weight: float):
+#         # slope is
 
 class EmpiricalETM(ExecutionTimeModel):
     def __init__(
@@ -569,6 +648,53 @@ class EmpiricalETM(ExecutionTimeModel):
     def get_cdf_at_instant(self, instant: float) -> float:
         exec_times = self._views[self._get_binned_ttf()]
         return exec_times[exec_times < instant].size / exec_times.size
+
+
+class EmpiricalAggregateETM(EmpiricalETM):
+    def __init__(
+            self,
+            aggregate_fn: Callable[[npt.NDArray], float],
+            kernel: TTFWindowKernel,
+            neuroticism: float | None,
+            ttf_levels: int = 4,
+            cleanup: CleanupMode = CleanupMode.WINSORIZE,
+    ):
+        super().__init__(
+            kernel=kernel,
+            neuroticism=neuroticism,
+            ttf_levels=ttf_levels,
+            cleanup=cleanup,
+        )
+        self._agg_fn = aggregate_fn
+
+    def get_execution_time(self) -> float:
+        return self._agg_fn(self._views[self._get_binned_ttf()])
+
+    def get_expected_execution_time(self) -> float:
+        return self.get_execution_time()
+
+    def state_info(self) -> Dict[str, Any]:
+        return {
+            "ttf_window": self._window,
+            "weights": self._kernel.weights,
+            "weighted_ttf": self._kernel.weighted_average(self._window),
+            "neuroticism": self._neuroticism,
+            "steps": self._steps,
+            "agg_fn": self._agg_fn.__name__,
+        }
+
+    def get_model_params(self) -> Dict[str, Any]:
+        return {
+            "neuroticism": self._neuroticism,
+            "window": self._window.size,
+            "ttf_levels": len(self._ttf_bins),
+            "kernel": self._kernel.__class__.__name__,
+            "agg_fn": self._agg_fn.__name__,
+        }
+
+    def get_cdf_at_instant(self, instant: float) -> float:
+        exec_time = self._agg_fn(self._views[self._get_binned_ttf()])
+        return float(instant < exec_time)
 
 
 class FittedETM(EmpiricalETM):
