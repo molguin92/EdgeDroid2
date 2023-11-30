@@ -11,36 +11,16 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import time
+from collections import deque
 from dataclasses import asdict, dataclass
-from typing import List
+from typing import List, Optional, Dict, Any, Iterator, Generator
 
-from .sampling import *
-from .timings import *
+import pandas as pd
+from numpy import typing as npt
 
-__all__ = [
-    "ExecutionTimeModel",
-    "FrameSet",
-    "ZeroWaitSamplingPolicy",
-    "LegacySamplingPolicy",
-    "ModelFrame",
-    "EdgeDroidModel",
-    "preprocess_data",
-    "IdealSamplingPolicy",
-    "BaseSamplingPolicy",
-    "HoldSamplingPolicy",
-    "RegularSamplingPolicy",
-    "AperiodicFrameSamplingModel",
-    "AperiodicPowerFrameSamplingModel",
-    "ConstantETM",
-    "FirstOrderETM",
-    "FirstOrderFittedETM",
-    "FrameTimings",
-    "EmpiricalETM",
-    "FittedETM",
-    "LegacyETM",
-    "CleanupMode",
-]
+from . import sampling
+from . import timings
 
 
 @dataclass(frozen=True)
@@ -84,9 +64,9 @@ class EdgeDroidModel:
 
     def __init__(
         self,
-        frame_trace: FrameSet,
-        timing_model: ExecutionTimeModel,
-        frame_model: BaseSamplingPolicy,
+        frame_trace: sampling.FrameSet,
+        timing_model: timings.ExecutionTimeModel,
+        frame_model: sampling.BaseSamplingPolicy,
     ):
         """
         Parameters
@@ -134,7 +114,7 @@ class EdgeDroidModel:
 
     def play_steps(
         self,
-    ) -> Iterator[Generator[ModelFrame, FrameTimings, None]]:
+    ) -> Iterator[Generator[ModelFrame, sampling.FrameTimings, None]]:
         """
         TODO: document
         """
@@ -145,7 +125,7 @@ class EdgeDroidModel:
         step_frame_timestamps = deque()
         initial_timings = {}
 
-        def _init_iter() -> Generator[ModelFrame, FrameTimings, None]:
+        def _init_iter() -> Generator[ModelFrame, sampling.FrameTimings, None]:
             self._frame_count += 1
             step_frame_timestamps.append(time.monotonic())
             nettime, proctime = yield ModelFrame(
@@ -196,14 +176,14 @@ class EdgeDroidModel:
             # clear the frame timestamp buffer
             step_frame_timestamps.clear()
 
-            def _frame_iter_for_step() -> Generator[ModelFrame, FrameTimings, None]:
+            def _frame_iter_for_step() -> Generator[ModelFrame, sampling.FrameTimings, None]:
                 # TODO: implement sampling records
                 # replay frames for step
                 frame_iter = self._frame_dists.step_iterator(
                     target_time=execution_time,
                     ttf=ttf,
                 )
-                frame_timings: Optional[FrameTimings] = None
+                frame_timings: Optional[sampling.FrameTimings] = None
 
                 while True:
                     try:
@@ -227,7 +207,7 @@ class EdgeDroidModel:
                         ),
                         extra_data=sample.extra,
                     )
-                    frame_timings = FrameTimings(nettime, proctime)
+                    frame_timings = sampling.FrameTimings(nettime, proctime)
 
             yield _frame_iter_for_step()
             dt = time.monotonic() - prev_step_end  # duration of step

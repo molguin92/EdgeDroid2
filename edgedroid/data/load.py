@@ -30,7 +30,7 @@ __all__ = [
     "load_default_task",
 ]
 
-from ..models import FrameSet
+from ..models.sampling import FrameSet
 
 # _default_neuro_bins = np.array([-np.inf, 1 / 3, 2 / 3, np.inf])
 # _default_impairment_bins = np.array([-np.inf, 1.0, 2.0, np.inf])
