@@ -28,6 +28,7 @@ __all__ = [
     "load_default_exec_time_data",
     "load_default_trace",
     "load_default_task",
+    "load_curve_fitting_data"
 ]
 
 from ..models.sampling import FrameSet
@@ -133,3 +134,13 @@ def load_default_task(
         num_states = truncate
 
     return [states[str(i)] for i in range(num_states)]
+
+
+def load_curve_fitting_data() -> pd.DataFrame:
+    from . import resources as edgedroid_resources
+
+    curve_fitting_data = resources.files(edgedroid_resources).joinpath(
+        "curve_fitting_data.parquet"
+    )
+    with as_file(curve_fitting_data) as fp:
+        return pd.read_parquet(fp)

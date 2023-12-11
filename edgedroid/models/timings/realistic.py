@@ -16,14 +16,14 @@ from __future__ import annotations
 
 import abc
 import enum
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, Tuple
 
 import numpy as np
 import pandas as pd
 from numpy import typing as npt
 from scipy import stats
 
-from .base import ExecutionTimeModel, TTimingModel
+from .base import ExecutionTimeModel, TTimingModel, ModelException
 
 
 class CleanupMode(enum.Enum):
@@ -362,3 +362,87 @@ class FittedETM(EmpiricalETM):
 
     def get_cdf_at_instant(self, instant: float) -> float:
         return float(self._dists[self._get_binned_ttf()].cdf(instant))
+
+
+class CurveFittingExecutionTimeModel(ExecutionTimeModel):
+
+    @staticmethod
+    def _exec_time_func(x, a, b, c) -> float:
+        return a * np.power(x, b) + c
+
+    @staticmethod
+    def get_data() -> (
+            Tuple[
+                pd.DataFrame,
+                pd.arrays.IntervalArray,
+                pd.arrays.IntervalArray,
+                pd.arrays.IntervalArray,
+            ]
+    ):
+        import edgedroid.data as e_data
+        return e_data.load_curve_fitting_data(), None, None, None
+
+    def __init__(self, neuroticism: float):
+        import scipy.optimize as opt
+
+        curve_data, *_ = self.get_data()
+
+        # filter on our level of neuroticism
+        curve_data = curve_data[curve_data["neuro"].array.contains(neuroticism)]
+        self._max_ttf = curve_data["ttf"].max()
+
+        # fit a curve for each duration
+        self._current_duration = 1
+        self._current_duration_func = None
+        self._prev_ttf = 0.0
+        self._exec_time_funcs: Dict[pd.Interval, Callable[[float], float]] = dict()
+        for duration, df in curve_data.groupby("duration", observed=True):
+            coefs, *_ = opt.curve_fit(self._exec_time_func, xdata=df["ttf"], ydata=df["exec_time"])
+            self._exec_time_funcs[duration] = (
+                lambda ttf: self._exec_time_func(ttf, *coefs)
+            )
+            if self._current_duration in duration:
+                self._current_duration_func = self._exec_time_funcs[duration]
+
+        if self._current_duration_func is None:
+            raise ModelException(f"No data for duration {self._current_duration}!")
+
+    def _update_duration_func(self):
+        for duration, func in self._exec_time_funcs.items():
+            if self._current_duration in duration:
+                self._current_duration_func = self._exec_time_funcs[duration]
+                return
+        raise ModelException(f"No data for duration {self._current_duration}!")
+
+    def advance(self: TTimingModel, ttf: float | int) -> TTimingModel:
+        if abs(ttf - self._prev_ttf) >= 0.5:  # TODO parameterize?
+            self._current_duration = 1
+        else:
+            self._current_duration += 1
+
+        self._update_duration_func()
+        self._prev_ttf = min(ttf, self._max_ttf)
+        return self
+
+    def get_execution_time(self) -> float:
+        return self._current_duration_func(self._prev_ttf)
+
+    def get_expected_execution_time(self) -> float:
+        return self.get_execution_time()
+
+    def get_mean_execution_time(self) -> float:
+        return self.get_execution_time()
+
+    def get_cdf_at_instant(self, instant: float):
+        raise Exception("Not implemented yet!")
+
+    def state_info(self) -> Dict[str, Any]:
+        raise Exception("Not implemented yet!")
+
+    def reset(self) -> None:
+        self._prev_ttf = 0.0
+        self._current_duration = 1
+        self._update_duration_func()
+
+    def get_model_params(self) -> Dict[str, Any]:
+        raise Exception("Not implemented yet!")
