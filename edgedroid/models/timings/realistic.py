@@ -38,7 +38,7 @@ _default_cleanup = CleanupMode.TRUNCATE
 
 
 def _winsorize(
-        arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
+    arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
 ) -> npt.NDArray:
     low_bound = np.percentile(arr, low_percentile)
     high_bound = np.percentile(arr, high_percentile)
@@ -50,7 +50,7 @@ def _winsorize(
 
 
 def _truncate(
-        arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
+    arr: npt.NDArray, low_percentile: int = 5, high_percentile: int = 95
 ) -> npt.NDArray:
     low_bound = np.percentile(arr, low_percentile)
     high_bound = np.percentile(arr, high_percentile)
@@ -96,7 +96,7 @@ class TTFWindowKernel(abc.ABC):
         arr = np.concatenate([np.zeros(kernel.size) + arr[0], arr])
         lkernel = np.concatenate([np.zeros(kernel.size - 1), kernel])
         result = np.convolve(arr, lkernel, "same")
-        return pd.Series(result[kernel.size:], index=index)
+        return pd.Series(result[kernel.size :], index=index)
 
     def weighted_average(self, window: npt.NDArray) -> float:
         return np.multiply(window, self.weights).sum()
@@ -120,7 +120,12 @@ class ExponentialTTFWindowKernel(TTFWindowKernel):
 
 
 class LinearTTFWindowKernel(TTFWindowKernel):
-    def __init__(self, window_size: int, max_relative_weight: float | int, min_relative_weight: float | int = 1.0):
+    def __init__(
+        self,
+        window_size: int,
+        max_relative_weight: float | int,
+        min_relative_weight: float | int = 1.0,
+    ):
         # formula for a line intersecting two points (x1 y1) (x2 y2):
         # (y1 - y2) / (x1 - x2) = slope
         # y1 - (x1 * slope) = c
@@ -176,11 +181,11 @@ class SimpleTTFWindowKernel(TTFWindowKernel):
 
 class EmpiricalETM(ExecutionTimeModel):
     def __init__(
-            self,
-            kernel: TTFWindowKernel,
-            neuroticism: float | None,
-            ttf_levels: int = 6,
-            cleanup: CleanupMode = CleanupMode.TRUNCATE,
+        self,
+        kernel: TTFWindowKernel,
+        neuroticism: float | None,
+        ttf_levels: int = 6,
+        cleanup: CleanupMode = CleanupMode.TRUNCATE,
     ):
         data, neuro_bins, *_ = self.get_data()
 
@@ -274,12 +279,12 @@ class EmpiricalETM(ExecutionTimeModel):
 
 class EmpiricalAggregateETM(EmpiricalETM):
     def __init__(
-            self,
-            aggregate_fn: Callable[[npt.NDArray], float],
-            kernel: TTFWindowKernel,
-            neuroticism: float | None,
-            ttf_levels: int = 6,
-            cleanup: CleanupMode = CleanupMode.TRUNCATE,
+        self,
+        aggregate_fn: Callable[[npt.NDArray], float],
+        kernel: TTFWindowKernel,
+        neuroticism: float | None,
+        ttf_levels: int = 6,
+        cleanup: CleanupMode = CleanupMode.TRUNCATE,
     ):
         super().__init__(
             kernel=kernel,
@@ -321,12 +326,12 @@ class EmpiricalAggregateETM(EmpiricalETM):
 
 class FittedETM(EmpiricalETM):
     def __init__(
-            self,
-            kernel: TTFWindowKernel,
-            neuroticism: float | None,
-            dist: stats.rv_continuous = stats.exponnorm,
-            ttf_levels: int = 6,
-            cleanup: CleanupMode = CleanupMode.TRUNCATE,
+        self,
+        kernel: TTFWindowKernel,
+        neuroticism: float | None,
+        dist: stats.rv_continuous = stats.exponnorm,
+        ttf_levels: int = 6,
+        cleanup: CleanupMode = CleanupMode.TRUNCATE,
     ):
         super(FittedETM, self).__init__(
             kernel=kernel,
@@ -365,41 +370,48 @@ class FittedETM(EmpiricalETM):
 
 
 class CurveFittingExecutionTimeModel(ExecutionTimeModel):
-
     @staticmethod
     def _exec_time_func(x, a, b, c) -> float:
         return a * np.power(x, b) + c
 
+    _exec_time_functions = ()
+
     @staticmethod
     def get_data() -> (
-            Tuple[
-                pd.DataFrame,
-                pd.arrays.IntervalArray,
-                pd.arrays.IntervalArray,
-                pd.arrays.IntervalArray,
-            ]
+        Tuple[
+            pd.DataFrame,
+            pd.arrays.IntervalArray,
+            pd.arrays.IntervalArray,
+            pd.arrays.IntervalArray,
+        ]
     ):
         import edgedroid.data as e_data
+
         return e_data.load_curve_fitting_data(), None, None, None
 
-    def __init__(self, neuroticism: float):
+    def __init__(self, neuroticism: float, duration_reset_threshold: float = 0.5):
         import scipy.optimize as opt
+
+        self._duration_reset = duration_reset_threshold
 
         curve_data, *_ = self.get_data()
 
         # filter on our level of neuroticism
         curve_data = curve_data[curve_data["neuro"].array.contains(neuroticism)]
-        self._max_ttf = curve_data["ttf"].max()
+        self._max_ttf = curve_data["prev_ttf"].max()
+        self._min_ttf = curve_data["prev_ttf"].min()
 
         # fit a curve for each duration
         self._current_duration = 1
         self._current_duration_func = None
         self._prev_ttf = 0.0
         self._exec_time_funcs: Dict[pd.Interval, Callable[[float], float]] = dict()
-        for duration, df in curve_data.groupby("duration", observed=True):
-            coefs, *_ = opt.curve_fit(self._exec_time_func, xdata=df["ttf"], ydata=df["exec_time"])
-            self._exec_time_funcs[duration] = (
-                lambda ttf: self._exec_time_func(ttf, *coefs)
+        for duration, df in curve_data.groupby("prev_duration", observed=True):
+            coefs, *_ = opt.curve_fit(
+                self._exec_time_func, xdata=df["prev_ttf"], ydata=df["exec_time"]
+            )
+            self._exec_time_funcs[duration] = lambda ttf: self._exec_time_func(
+                ttf, *coefs
             )
             if self._current_duration in duration:
                 self._current_duration_func = self._exec_time_funcs[duration]
@@ -415,13 +427,14 @@ class CurveFittingExecutionTimeModel(ExecutionTimeModel):
         raise ModelException(f"No data for duration {self._current_duration}!")
 
     def advance(self: TTimingModel, ttf: float | int) -> TTimingModel:
-        if abs(ttf - self._prev_ttf) >= 0.5:  # TODO parameterize?
+        if abs(ttf - self._prev_ttf) >= self._duration_reset:
             self._current_duration = 1
         else:
             self._current_duration += 1
 
         self._update_duration_func()
-        self._prev_ttf = min(ttf, self._max_ttf)
+
+        self._prev_ttf = np.clip(ttf, a_min=self._min_ttf, a_max=self._max_ttf)
         return self
 
     def get_execution_time(self) -> float:

@@ -1,3 +1,4 @@
 from .base import *
-from .reference import *
+from .curve import *
 from .realistic import *
+from .reference import *
