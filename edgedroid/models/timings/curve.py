@@ -96,6 +96,14 @@ class LinearFit(CurveFit):
         )
 
 
+def outliers_to_nan_then_mean(a: npt.NDArray | npt.ArrayLike, p: float = 5) -> float:
+    upper_bound = np.percentile(a, 100 - p)
+    lower_bound = np.percentile(a, p)
+    a[a > upper_bound] = np.nan
+    a[a < lower_bound] = np.nan
+    return np.mean(a)
+
+
 class MultiCurveFittingExecutionTimeModel(ExecutionTimeModel):
     _fit_functions = (PowerFit, SquareFit, CubeFit, ExponentialFit, LinearFit)
 
@@ -109,7 +117,7 @@ class MultiCurveFittingExecutionTimeModel(ExecutionTimeModel):
         self,
         neuroticism: float,
         duration_reset_threshold: float = 0.5,
-        agg_fn: Callable[[npt.ArrayLike], float] = np.mean,
+        agg_fn: Callable[[npt.ArrayLike], float] = outliers_to_nan_then_mean,
     ):
         logger.debug(f"Curve fitting aggregation function: {agg_fn.__name__}")
         self._duration_reset = duration_reset_threshold
