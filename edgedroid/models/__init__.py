@@ -11,16 +11,11 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-import time
-from collections import deque
 from dataclasses import asdict, dataclass
-from typing import List, Optional, Dict, Any, Iterator, Generator
+from typing import List, Optional
 
-import pandas as pd
-from numpy import typing as npt
-
-from . import sampling
-from . import timings
+from .sampling import *
+from .timings import *
 
 
 @dataclass(frozen=True)
@@ -176,7 +171,9 @@ class EdgeDroidModel:
             # clear the frame timestamp buffer
             step_frame_timestamps.clear()
 
-            def _frame_iter_for_step() -> Generator[ModelFrame, sampling.FrameTimings, None]:
+            def _frame_iter_for_step() -> (
+                Generator[ModelFrame, sampling.FrameTimings, None]
+            ):
                 # TODO: implement sampling records
                 # replay frames for step
                 frame_iter = self._frame_dists.step_iterator(

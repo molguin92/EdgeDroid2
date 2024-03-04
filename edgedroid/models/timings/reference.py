@@ -21,39 +21,6 @@ from numpy import typing as npt
 from scipy import stats
 
 from .base import TTimingModel, ExecutionTimeModel
-from .realistic import EmpiricalETM, TTFWindowKernel
-
-
-class LegacyETM(EmpiricalETM):
-    """
-    EdgeDroid 1.0 execution time model.
-    """
-
-    def __init__(
-            self,
-            kernel: TTFWindowKernel,
-            seed: int = 4,
-            ttf_levels: int = 7,
-    ):
-        super(LegacyETM, self).__init__(
-            kernel=kernel,
-            neuroticism=0.0,
-            ttf_levels=ttf_levels,
-        )
-        # as long as the seed is the same will generate the same sequence of execution times
-        self._seed = seed
-        self._rng = np.random.default_rng(seed=self._seed)
-
-    def advance(self: TTimingModel, ttf: float | int) -> TTimingModel:
-        super().advance(
-            ttf=0
-        )  # EdgeDroid 1.0 used a trace recorded in optimal conditions
-        return self
-
-    def reset(self) -> None:
-        self._window = np.zeros(self._window.size, dtype=float)
-        self._rng = np.random.default_rng(seed=self._seed)
-        self._steps = 0
 
 
 class ConstantETM(ExecutionTimeModel):
@@ -139,8 +106,8 @@ class FirstOrderETM(ExecutionTimeModel):
 
 class FirstOrderFittedETM(FirstOrderETM):
     def __init__(
-            self,
-            dist: stats.rv_continuous = stats.exponnorm,
+        self,
+        dist: stats.rv_continuous = stats.exponnorm,
     ):
         super(FirstOrderFittedETM, self).__init__()
 
@@ -202,3 +169,53 @@ class FirstOrderAggregateETM(FirstOrderETM):
 
     def get_cdf_at_instant(self, instant: float) -> float:
         return float(instant < self._agg_exec_time)
+
+
+class LegacyModel(ExecutionTimeModel):
+    @staticmethod
+    def get_data() -> pd.DataFrame:
+        import edgedroid.data as e_data
+
+        return e_data.load_curve_fitting_data()
+
+    def __init__(self, seed: int = 4):  # https://xkcd.com/221/
+        super().__init__()
+        rng = np.random.default_rng(seed)
+
+        data = self.get_data()
+        data = data[data["prev_ttf"] == data["prev_ttf"].min()].copy()
+
+        self.times = (
+            data.groupby(["prev_duration"], observed=True)["exec_time"]
+            .apply(lambda a: rng.choice(a))
+            .reset_index()
+        )  # one execution time per duration
+
+        self._current_duration = 0
+
+    def advance(self: TTimingModel, ttf: float | int) -> TTimingModel:
+        self._current_duration += 1
+        return self
+
+    def get_execution_time(self) -> float:
+        return self.times.loc[
+            self.times["prev_duration"].array.contains(self._current_duration),
+        ].iat[0, 1]
+
+    def get_expected_execution_time(self) -> float:
+        return self.get_execution_time()
+
+    def get_mean_execution_time(self) -> float:
+        return self.get_execution_time()
+
+    def get_cdf_at_instant(self, instant: float):
+        raise Exception("Not implemented yet!")
+
+    def state_info(self) -> Dict[str, Any]:
+        raise Exception("Not implemented yet!")
+
+    def reset(self) -> None:
+        self._current_duration = 0
+
+    def get_model_params(self) -> Dict[str, Any]:
+        raise Exception("Not implemented yet!")

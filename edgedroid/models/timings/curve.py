@@ -7,7 +7,6 @@ from loguru import logger
 from scipy.optimize import curve_fit
 
 from .base import ExecutionTimeModel, TTimingModel, ModelException
-from .realistic import CleanupMode, _winsorize, _truncate
 
 
 class CurveFit:
@@ -201,56 +200,6 @@ class MultiCurveFittingExecutionTimeModel(ExecutionTimeModel):
         self._prev_ttf = 0.0
         self._current_duration = 1
         self._update_duration_func()
-
-    def get_model_params(self) -> Dict[str, Any]:
-        raise Exception("Not implemented yet!")
-
-
-class LegacyModel(ExecutionTimeModel):
-    @staticmethod
-    def get_data() -> pd.DataFrame:
-        import edgedroid.data as e_data
-
-        return e_data.load_curve_fitting_data()
-
-    def __init__(self, seed: int = 4):  # https://xkcd.com/221/
-        super().__init__()
-        rng = np.random.default_rng(seed)
-
-        data = self.get_data()
-        data = data[data["prev_ttf"] == data["prev_ttf"].min()].copy()
-
-        self.times = (
-            data.groupby(["prev_duration"], observed=True)["exec_time"]
-            .apply(lambda a: rng.choice(a))
-            .reset_index()
-        )  # one execution time per duration
-
-        self._current_duration = 0
-
-    def advance(self: TTimingModel, ttf: float | int) -> TTimingModel:
-        self._current_duration += 1
-        return self
-
-    def get_execution_time(self) -> float:
-        return self.times.loc[
-            self.times["prev_duration"].array.contains(self._current_duration),
-        ].iat[0, 1]
-
-    def get_expected_execution_time(self) -> float:
-        return self.get_execution_time()
-
-    def get_mean_execution_time(self) -> float:
-        return self.get_execution_time()
-
-    def get_cdf_at_instant(self, instant: float):
-        raise Exception("Not implemented yet!")
-
-    def state_info(self) -> Dict[str, Any]:
-        raise Exception("Not implemented yet!")
-
-    def reset(self) -> None:
-        self._current_duration = 0
 
     def get_model_params(self) -> Dict[str, Any]:
         raise Exception("Not implemented yet!")
