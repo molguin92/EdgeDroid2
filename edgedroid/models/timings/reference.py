@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Dict, Any, Callable
 
 import numpy as np
+import pandas as pd
 from numpy import typing as npt
 from scipy import stats
 
@@ -65,6 +66,12 @@ class FirstOrderETM(ExecutionTimeModel):
     """
     Returns execution times sampled from a simple distribution.
     """
+
+    @staticmethod
+    def get_data() -> Any:
+        import edgedroid.data as e_data
+
+        return e_data.load_default_exec_time_data()
 
     def __init__(self):
         super(FirstOrderETM, self).__init__()

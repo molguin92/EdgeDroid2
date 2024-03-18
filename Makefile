@@ -1,6 +1,7 @@
-BUILD_CMD = docker buildx build --push --platform linux/arm64,linux/amd64
 DOCKER_USER = molguin
 IMG_REPO = $(DOCKER_USER)/edgedroid2
+PLATFORMS ?= linux/arm64,linux/amd64
+BUILD_CMD = docker buildx build --push --platform $(PLATFORMS)
 
 SOURCES := $(wildcard edgedroid/**/*.py)
 
@@ -20,7 +21,7 @@ all: edgedroid-base experiments
 edgedroid-base: Dockerfile $(SOURCES)
 	$(BUILD_CMD) -t $(IMG_REPO):latest -f $< .
 
-experiments:
+experiments: edgedroid-base
 	make -C experiments all
 
 dlib: Dockerfile.dlib

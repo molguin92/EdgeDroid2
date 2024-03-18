@@ -28,7 +28,7 @@ experiments: Dict[str, Callable[[], ExperimentConfig]] = {
             "sampling_policy": "zero-wait",
         },
     ),
-    "empirical-high-neuro": lambda: ExperimentConfig(
+    "curve-high-neuro": lambda: ExperimentConfig(
         timing_model=MultiCurveFittingExecutionTimeModel(neuroticism=1.0),
         sampling_scheme=ZeroWaitSamplingPolicy.from_default_data(),
         metadata={

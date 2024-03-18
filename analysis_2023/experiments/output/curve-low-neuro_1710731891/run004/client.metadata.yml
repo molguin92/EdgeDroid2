@@ -1,0 +1,7 @@
+---
+host: server:5000
+sampling_policy: zero-wait
+task: square00
+timing_model: curve-low
+truncate: 50
+...

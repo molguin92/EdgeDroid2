@@ -1,0 +1,28 @@
+services:
+  server:
+    image: molguin/edgedroid2:experiment-server
+    command:
+      - --truncate
+      - ${TRUNCATE}
+      - -o
+      - "/opt/output"
+      - 0.0.0.0
+      - "5000"
+      - square00
+    volumes:
+      - ${OUTPUT}:/opt/output:rw
+  client:
+    image: molguin/edgedroid2:experiment-client
+    depends_on:
+      - server
+    command:
+      - --truncate
+      - ${TRUNCATE}
+      - -o
+      - "/opt/output"
+      - ${EXPERIMENT}
+      - server
+      - "5000"
+      - square00
+    volumes:
+      - ${OUTPUT}:/opt/output:rw
