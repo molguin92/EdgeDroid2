@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 
-set -e
+set -ex
+make image
 
 # SETTINGS
-LATENCY=50  # one-way latency!
+LATENCY=50  # one-way latency! milliseconds
 VARIANCE=10  # also one-way
-CORREL=25
-NUM_STEPS=100
-
-
+NUM_STEPS=50
 REPS_PER_EXP=10
-OUT_DIR="./output"
+
+OUT_DIR="./output/lat${LATENCY}_var${VARIANCE}"
 mkdir -p "${OUT_DIR}"
 
-for MODEL in legacy first-order first-order-median curve-high-neuro curve-low-neuro; do
-  EXP_OUT_DIR="${OUT_DIR}/${MODEL}"
-  mkdir -p "${EXP_OUT_DIR}"
-  docker run --rm -it --cap-add NET_ADMIN -v "${EXP_OUT_DIR}:/opt/output"\
-    -e LATENCY=${LATENCY} -e VARIANCE=${VARIANCE} -e CORREL=${CORREL} -e \
-    NUM_STEPS=${NUM_STEPS} -e TRACE=square00 -e MODEL=${MODEL} "experiment_client"
+for REP in $(seq 1 ${REPS_PER_EXP}); do
+  for MODEL in legacy first-order first-order-median curve-high-neuro curve-low-neuro; do
+    EXP_OUT_DIR="${OUT_DIR}/${MODEL}_${REP}_of_${REPS_PER_EXP}"
+    mkdir -p "${EXP_OUT_DIR}"
+    docker run --rm -it --cap-add NET_ADMIN -v "${EXP_OUT_DIR}:/opt/output"\
+      -e LATENCY=${LATENCY} -e VARIANCE=${VARIANCE} -e \
+      NUM_STEPS=${NUM_STEPS} -e TRACE=square00 -e MODEL=${MODEL} "experiment_client"
+  done
 done
+
+set +ex
