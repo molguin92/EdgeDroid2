@@ -4,8 +4,8 @@ set -ex
 make image
 
 # SETTINGS
-LATENCY=50  # one-way latency! milliseconds
-VARIANCE=10  # also one-way
+LATENCY=100  # one-way latency! milliseconds
+VARIANCE=20  # also one-way
 NUM_STEPS=50
 REPS_PER_EXP=10
 
