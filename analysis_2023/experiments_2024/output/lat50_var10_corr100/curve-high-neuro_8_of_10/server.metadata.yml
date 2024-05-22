@@ -1,4 +1,0 @@
----
-bind_address: localhost:5000
-task: square00
-...

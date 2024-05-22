@@ -1,7 +1,0 @@
----
-host: localhost:5000
-sampling_policy: zero-wait
-task: square00
-timing_model: curve-high
-truncate: 50
-...

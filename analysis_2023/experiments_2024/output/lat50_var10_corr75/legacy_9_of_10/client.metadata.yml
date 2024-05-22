@@ -1,7 +1,0 @@
----
-host: localhost:5000
-sampling_policy: legacy
-task: square00
-timing_model: legacy
-truncate: 50
-...

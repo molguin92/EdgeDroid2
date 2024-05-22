@@ -3,13 +3,16 @@
 set -ex
 make image
 
+# 50 100 200 400 800 1600
+# 10 20 40 80 160 320
+
 # SETTINGS
-LATENCY=100  # one-way latency! milliseconds
-VARIANCE=20  # also one-way
+LATENCY=800  # one-way latency! milliseconds
+VARIANCE=160  # also one-way
 NUM_STEPS=50
 REPS_PER_EXP=10
 
-for CORREL in 0 25 50 75 100; do
+for CORREL in 0 25 50; do
   OUT_DIR="./output/lat${LATENCY}_var${VARIANCE}_corr${CORREL}"
   mkdir -p "${OUT_DIR}"
 
