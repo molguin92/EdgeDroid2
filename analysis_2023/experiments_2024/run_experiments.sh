@@ -7,8 +7,8 @@ make image
 # 10 20 40 80 160 320
 
 # SETTINGS
-LATENCY=800  # one-way latency! milliseconds
-VARIANCE=160  # also one-way
+LATENCY=400  # one-way latency! milliseconds
+VARIANCE=80  # also one-way
 NUM_STEPS=50
 REPS_PER_EXP=10
 
