@@ -33,13 +33,6 @@ class ModelFrame:
 @dataclass(frozen=True, eq=True)
 class StepRecord:
     step_number: int
-    # impairment_score: float
-    step_start: float
-    step_start_monotonic: float
-    step_end: float
-    step_end_monotonic: float
-    first_frame_monotonic: float
-    last_frame_monotonic: float
     last_frame_rtt: float
     execution_time: float
     step_duration: float
@@ -107,23 +100,54 @@ class EdgeDroidModel:
     def frame_count(self) -> int:
         return self._frame_count
 
-    def play_steps(
+    def play_steps_realtime(
         self,
-    ) -> Iterator[Generator[ModelFrame, sampling.FrameTimings, None]]:
-        """
-        TODO: document
-        """
-        task_start, task_start_mono = time.time(), time.monotonic()
-        prev_step_end = task_start_mono
+    ) -> Iterator[Generator[ModelFrame, FrameTimings, None]]:
+        import time
 
+        for step in self.play_steps_emulated_time():
+
+            def _step_iter() -> Generator[ModelFrame, FrameTimings, None]:
+                timings: Optional[FrameTimings] = None
+
+                while True:
+                    ti = time.monotonic()
+                    try:
+                        timings = yield step.send(timings)
+                    except StopIteration:
+                        break
+
+                    dt = time.monotonic() - ti
+                    assert dt >= timings.get_rtt()
+                    assert dt >= timings.proctime_s
+
+                    timings = FrameTimings(dt - timings.proctime_s, timings.proctime_s)
+
+            yield _step_iter()
+
+    def play_steps_emulated_time(
+        self,
+    ) -> Iterator[Generator[ModelFrame, FrameTimings, None]]:
         self.reset()
-        step_frame_timestamps = deque()
-        initial_timings = {}
 
-        def _init_iter() -> Generator[ModelFrame, sampling.FrameTimings, None]:
-            self._frame_count += 1
-            step_frame_timestamps.append(time.monotonic())
-            nettime, proctime = yield ModelFrame(
+        class StepMetrics:
+            model = self
+
+            def __init__(self):
+                self.frame_count = 0
+                self.last_frame: Optional[FrameTimings] = None
+                self.duration = 0.0
+
+            def advance_frame(self, frame: FrameTimings):
+                self.frame_count += 1
+                self.model._frame_count += 1
+                self.last_frame = frame
+                self.duration += frame.nettime_s + frame.proctime_s
+
+        step_metrics = StepMetrics()
+
+        def _init_iter() -> Generator[ModelFrame, FrameTimings, None]:
+            timings = yield ModelFrame(
                 seq=self._frame_count,
                 step_seq=1,
                 step_index=-1,
@@ -133,65 +157,42 @@ class EdgeDroidModel:
                 frame_data=self._frames.get_initial_frame(),
                 extra_data={},
             )
-            initial_timings["nettime"] = nettime
-            initial_timings["proctime"] = proctime
+            step_metrics.advance_frame(timings)
 
         yield _init_iter()
-        dt = time.monotonic() - prev_step_end
 
         step_record = StepRecord(
             step_number=0,
-            step_start=task_start,
-            step_start_monotonic=prev_step_end,
-            step_end=task_start + dt,
-            step_end_monotonic=prev_step_end + dt,
-            first_frame_monotonic=step_frame_timestamps[0],
-            last_frame_monotonic=step_frame_timestamps[-1],
-            last_frame_rtt=(prev_step_end + dt) - step_frame_timestamps[-1],
+            last_frame_rtt=step_metrics.duration,
             execution_time=0.0,
-            step_duration=dt,
-            time_to_feedback=dt,
-            wait_time=step_frame_timestamps[-1] - task_start_mono,
-            frame_count=len(step_frame_timestamps),
+            step_duration=step_metrics.duration,
+            time_to_feedback=step_metrics.duration,
+            wait_time=0.0,
+            frame_count=step_metrics.frame_count,
         )
-
         self._step_records.append(step_record)
-        prev_step_end = step_record.step_end_monotonic
-
-        # start the actual sampling scheme
-        self._frame_dists.update_timings(
-            [initial_timings["nettime"]], [initial_timings["proctime"]]
-        )
 
         for step_index in range(self.step_count):
             # get a step duration
             ttf = self._step_records[-1].time_to_feedback
             execution_time = self._timings.advance(ttf).get_execution_time()
+            step_metrics = StepMetrics()
 
-            # clear the frame timestamp buffer
-            step_frame_timestamps.clear()
-
-            def _frame_iter_for_step() -> (
-                Generator[ModelFrame, sampling.FrameTimings, None]
-            ):
-                # TODO: implement sampling records
-                # replay frames for step
+            def _frame_iter_for_step() -> Generator[ModelFrame, FrameTimings, None]:
+                # play frames for step
                 frame_iter = self._frame_dists.step_iterator(
                     target_time=execution_time,
                     ttf=ttf,
                 )
-                frame_timings: Optional[sampling.FrameTimings] = None
+                timings: Optional[FrameTimings] = None
 
                 while True:
                     try:
-                        sample = frame_iter.send(frame_timings)
+                        sample = frame_iter.send(timings)
                     except StopIteration:
                         break
 
-                    self._frame_count += 1
-                    # record frame emission timestamp
-                    step_frame_timestamps.append(time.monotonic())
-                    nettime, proctime = yield ModelFrame(
+                    timings = yield ModelFrame(
                         seq=self._frame_count,
                         step_seq=sample.seq,
                         step_index=step_index,
@@ -204,28 +205,23 @@ class EdgeDroidModel:
                         ),
                         extra_data=sample.extra,
                     )
-                    frame_timings = sampling.FrameTimings(nettime, proctime)
+                    step_metrics.advance_frame(timings)
 
             yield _frame_iter_for_step()
-            dt = time.monotonic() - prev_step_end  # duration of step
 
-            step_start = task_start + (prev_step_end - task_start_mono)
-            # TODO: this is a lot of processing... push to another process?
+            last_frame = step_metrics.last_frame
+            last_frame_rtt = last_frame.proctime_s + last_frame.nettime_s
+            time_to_feedback = step_metrics.duration - execution_time
+            wait_time = time_to_feedback - last_frame_rtt
+
             step_record = StepRecord(
                 step_number=step_index + 1,
-                step_start=step_start,
-                step_start_monotonic=prev_step_end,
-                step_end=step_start + dt,
-                step_end_monotonic=prev_step_end + dt,
-                first_frame_monotonic=step_frame_timestamps[0],
-                last_frame_monotonic=step_frame_timestamps[-1],
-                last_frame_rtt=(prev_step_end + dt) - step_frame_timestamps[-1],
+                last_frame_rtt=last_frame_rtt,
                 execution_time=execution_time,
-                step_duration=dt,
-                time_to_feedback=dt - execution_time,
-                wait_time=step_frame_timestamps[-1] - (prev_step_end + execution_time),
-                frame_count=len(step_frame_timestamps),
+                step_duration=step_metrics.duration,
+                time_to_feedback=time_to_feedback,
+                wait_time=wait_time,
+                frame_count=step_metrics.frame_count,
             )
 
             self._step_records.append(step_record)
-            prev_step_end = step_record.step_end_monotonic  # update checkpoint

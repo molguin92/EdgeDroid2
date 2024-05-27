@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import abc
 import itertools
-import time
 from collections import deque
 from os import PathLike
 from typing import (
@@ -42,6 +41,9 @@ class TraceException(Exception):
 class FrameTimings(NamedTuple):
     nettime_s: float
     proctime_s: float
+
+    def get_rtt(self) -> float:
+        return self.nettime_s + self.proctime_s
 
 
 class FrameSet:
@@ -346,10 +348,6 @@ class BaseSamplingPolicy(abc.ABC):
     ) -> Generator[FrameSample, FrameTimings, None]:
         pass
 
-    def update_timings(self, nettimes: Sequence[float], proctimes: Sequence[float]):
-        # no-op by default
-        pass
-
 
 class ZeroWaitSamplingPolicy(BaseSamplingPolicy):
     def step_iterator(
@@ -372,159 +370,24 @@ class ZeroWaitSamplingPolicy(BaseSamplingPolicy):
             Frame tags.
         """
 
-        step_start = time.monotonic()
+        instant = 0
         for seq in itertools.count(start=1):
-            instant = time.monotonic() - step_start
-            _, _ = yield FrameSample(
+            timings: FrameTimings = yield FrameSample(
                 seq=seq,
                 sample_tag=self.get_frame_at_instant(instant, target_time),
                 instant=instant,
                 extra={},
             )
-            if instant > target_time:
+            if instant >= target_time:
                 break
 
-
-class IdealSamplingPolicy(ZeroWaitSamplingPolicy):
-    def step_iterator(
-        self,
-        target_time: float,
-        ttf: float,
-        # infinite: bool = False,
-    ) -> Generator[FrameSample, FrameTimings, None]:
-        step_start = time.monotonic()
-        for seq in itertools.count(start=1):
-            time.sleep(max(target_time - (time.monotonic() - step_start), 0))
-            dt = time.monotonic() - step_start
-            _, _ = yield FrameSample(
-                seq=seq,
-                sample_tag=self.get_frame_at_instant(dt, target_time),
-                instant=dt,
-                extra={},
-            )
-            if dt > target_time:
-                break
-
-
-class HoldSamplingPolicy(ZeroWaitSamplingPolicy):
-    """
-    Doesn't sample for a specified period of time at the beginning of each step.
-    """
-
-    @classmethod
-    def from_default_data(
-        cls: Type[TBaseSampling],
-        hold_time_seconds: float,
-        *args,
-        **kwargs,
-    ) -> TBaseSampling:
-        from ... import data as e_data
-
-        probs = e_data.load_default_frame_probabilities()
-        return cls(
-            probabilities=probs,
-            hold_time_seconds=hold_time_seconds,
-            success_tag="success",
-        )
-
-    def __init__(
-        self,
-        probabilities: pd.DataFrame,
-        hold_time_seconds: float,
-        success_tag: str = "success",
-    ):
-        super(HoldSamplingPolicy, self).__init__(probabilities, success_tag=success_tag)
-        self._hold_time = hold_time_seconds
-
-    def step_iterator(
-        self,
-        target_time: float,
-        ttf: float,
-        # infinite: bool = False,
-    ) -> Generator[FrameSample, FrameTimings, None]:
-        step_start = time.monotonic()
-        time.sleep(self._hold_time)
-        for seq in itertools.count(start=1):
-            instant = time.monotonic() - step_start
-            _, _ = yield FrameSample(
-                seq=seq,
-                sample_tag=self.get_frame_at_instant(instant, target_time),
-                instant=instant,
-                extra={},
-            )
-            if instant > target_time:
-                break
-
-
-class RegularSamplingPolicy(ZeroWaitSamplingPolicy):
-    """
-    Samples in constant discrete time intervals. Defaults to zero-wait sampling if
-    the time between calls to the step iterator is longer than the sampling interval!
-    """
-
-    @classmethod
-    def from_default_data(
-        cls: Type[TBaseSampling],
-        sampling_interval_seconds: float,
-        *args,
-        **kwargs,
-    ) -> TBaseSampling:
-        from ... import data as e_data
-
-        probs = e_data.load_default_frame_probabilities()
-        return cls(
-            probabilities=probs,
-            sampling_interval_seconds=sampling_interval_seconds,
-            success_tag="success",
-        )
-
-    def __init__(
-        self,
-        probabilities: pd.DataFrame,
-        sampling_interval_seconds: float,
-        success_tag: str = "success",
-    ):
-        super(RegularSamplingPolicy, self).__init__(
-            probabilities, success_tag=success_tag
-        )
-        self._interval = sampling_interval_seconds
-
-    def step_iterator(
-        self,
-        target_time: float,
-        ttf: float,
-    ) -> Generator[FrameSample, FrameTimings, None]:
-        step_start = time.monotonic()
-        dt = 0
-
-        for seq in itertools.count(start=1):
-            try:
-                time.sleep(self._interval - dt)
-                late = False
-            except ValueError:
-                # missed the deadline (i.e. rtt was too high)
-                late = True
-
-            instant = time.monotonic() - step_start
-            _, _ = yield FrameSample(
-                seq=seq,
-                sample_tag=self.get_frame_at_instant(instant, target_time),
-                instant=instant,
-                extra={
-                    "target_interval": self._interval,
-                    "actual_interval": dt if late else self._interval,
-                    "late_sample": late,
-                },
-            )
-            dt = (time.monotonic() - step_start) - instant
-
-            if instant > target_time:
-                break
+            instant += timings.get_rtt()
 
 
 class LegacySamplingPolicy(ZeroWaitSamplingPolicy):
     rewind_seconds = 5.0
-    padding_seconds = 1.0
+    acceptance_window = 1.0  # acceptance window after the target time is reached
+    # after this window, we rewind
 
     def step_iterator(
         self,
@@ -534,23 +397,28 @@ class LegacySamplingPolicy(ZeroWaitSamplingPolicy):
         """
         Emulates an EdgeDroid 1.0 trace.
         """
-        padded_time = target_time + self.padding_seconds
-        rewind_start = padded_time - self.rewind_seconds
+        padded_time = target_time + self.acceptance_window
+        rewind_seconds = min(self.rewind_seconds, padded_time)
 
-        step_start = time.monotonic()
+        rewind_start = (
+            padded_time - rewind_seconds
+        )  # WARN: this can potentially be 0.0, if padded_time < self.rewind_s
+
+        step_start = 0
+        instant = step_start
         for seq in itertools.count(start=1):
-            instant = time.monotonic() - step_start
-
             if instant > padded_time:
                 # "rewind"
-                instant = rewind_start + ((instant - padded_time) % self.rewind_seconds)
+                instant = rewind_start + ((instant - padded_time) % rewind_seconds)
 
-            _, _ = yield FrameSample(
+            timings: FrameTimings = yield FrameSample(
                 seq=seq,
                 sample_tag=self.get_frame_at_instant(instant, target_time),
                 instant=instant,
                 extra={},
             )
 
-            if instant > target_time:
+            if instant >= target_time:
                 break
+
+            instant += timings.get_rtt()

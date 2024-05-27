@@ -17,6 +17,7 @@ from typing import Optional
 
 from loguru import logger
 from tqdm import tqdm
+from tqdm.contrib import tenumerate
 
 from .. import data as e_data
 from ..models import EdgeDroidModel, FrameTimings, ZeroWaitSamplingPolicy
@@ -46,7 +47,9 @@ class EndToEndTest(unittest.TestCase):
             )
 
             task = LEGOTask(e_data.load_default_task(trace, truncate=tlen))
-            for model_step in tqdm(model.play_steps(), total=task.task_length):
+            for step_i, model_step in tenumerate(
+                model.play_steps_realtime(), total=task.task_length
+            ):
                 self.assertFalse(task.finished)
 
                 frame_timings: Optional[FrameTimings] = None
@@ -59,7 +62,7 @@ class EndToEndTest(unittest.TestCase):
                     self.assertEqual(
                         FrameResult.SUCCESS,
                         task.submit_frame(model_frame.frame_data),
-                        model_frame,
+                        step_i,
                     )
                     proctime = time.monotonic() - ti
                     frame_timings = FrameTimings(0, proctime)

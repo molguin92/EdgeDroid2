@@ -98,7 +98,7 @@ Initializing EdgeDroid model with:
         start_time = time.time()
         start_time_mono = time.monotonic()
         with contextlib.closing(response_stream_unpack(sock)) as resp_stream:
-            for step_num, model_step in enumerate(self._model.play_steps()):
+            for step_num, model_step in enumerate(self._model.play_steps_realtime()):
                 logger.info(f"Current step: {step_num}")
                 ti = time.monotonic()
                 frame_timings: Optional[FrameTimings] = None
