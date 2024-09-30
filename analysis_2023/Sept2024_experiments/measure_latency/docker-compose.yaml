@@ -1,0 +1,125 @@
+x-base: &base
+  build:
+    context: .
+    dockerfile_inline: |
+      FROM debian:bookworm
+      RUN apt-get update && apt-get -y install inetutils-ping iproute2
+  cap_add:
+    - NET_ADMIN
+  command: >
+    bash -xc "
+    tc qdisc add dev lo root netem delay $${LATENCY}ms $${JITTER}ms $${CORREL}% distribution $${DIST:-"pareto"} 
+    && ping localhost -c 10 | tee /opt/results/results_$${LATENCY}_$${JITTER}_$${CORREL}.txt
+    "
+  volumes:
+    - ./results:/opt/results:rw
+
+services:
+  measure_50_10_00:
+    <<: *base
+    environment:
+      LATENCY: 50
+      JITTER: 10
+      CORREL: 0
+  measure_100_20_00:
+    <<: *base
+    environment:
+      LATENCY: 100
+      JITTER: 20
+      CORREL: 0
+  measure_200_40_00:
+    <<: *base
+    environment:
+      LATENCY: 200
+      JITTER: 40
+      CORREL: 0
+  measure_400_80_00:
+    <<: *base
+    environment:
+      LATENCY: 400
+      JITTER: 80
+      CORREL: 0
+  measure_800_160_00:
+    <<: *base
+    environment:
+      LATENCY: 800
+      JITTER: 160
+      CORREL: 0
+  measure_1600_320_00:
+    <<: *base
+    environment:
+      LATENCY: 1600
+      JITTER: 320
+      CORREL: 0
+  measure_50_10_25:
+    <<: *base
+    environment:
+      LATENCY: 50
+      JITTER: 10
+      CORREL: 25
+  measure_100_20_25:
+    <<: *base
+    environment:
+      LATENCY: 100
+      JITTER: 20
+      CORREL: 25
+  measure_200_40_25:
+    <<: *base
+    environment:
+      LATENCY: 200
+      JITTER: 40
+      CORREL: 25
+  measure_400_80_25:
+    <<: *base
+    environment:
+      LATENCY: 400
+      JITTER: 80
+      CORREL: 25
+  measure_800_160_25:
+    <<: *base
+    environment:
+      LATENCY: 800
+      JITTER: 160
+      CORREL: 25
+  measure_1600_320_25:
+    <<: *base
+    environment:
+      LATENCY: 1600
+      JITTER: 320
+      CORREL: 25
+  measure_50_10_50:
+    <<: *base
+    environment:
+      LATENCY: 50
+      JITTER: 10
+      CORREL: 50
+  measure_100_20_50:
+    <<: *base
+    environment:
+      LATENCY: 100
+      JITTER: 20
+      CORREL: 50
+  measure_200_40_50:
+    <<: *base
+    environment:
+      LATENCY: 200
+      JITTER: 40
+      CORREL: 50
+  measure_400_80_50:
+    <<: *base
+    environment:
+      LATENCY: 400
+      JITTER: 80
+      CORREL: 50
+  measure_800_160_50:
+    <<: *base
+    environment:
+      LATENCY: 800
+      JITTER: 160
+      CORREL: 50
+  measure_1600_320_50:
+    <<: *base
+    environment:
+      LATENCY: 1600
+      JITTER: 320
+      CORREL: 50

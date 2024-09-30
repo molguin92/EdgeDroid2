@@ -1,0 +1,14 @@
+PING localhost (127.0.0.1): 56 data bytes
+64 bytes from 127.0.0.1: icmp_seq=0 ttl=64 time=412.626 ms
+64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=359.226 ms
+64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=354.852 ms
+64 bytes from 127.0.0.1: icmp_seq=3 ttl=64 time=360.944 ms
+64 bytes from 127.0.0.1: icmp_seq=4 ttl=64 time=549.909 ms
+64 bytes from 127.0.0.1: icmp_seq=5 ttl=64 time=385.999 ms
+64 bytes from 127.0.0.1: icmp_seq=6 ttl=64 time=367.945 ms
+64 bytes from 127.0.0.1: icmp_seq=7 ttl=64 time=405.602 ms
+64 bytes from 127.0.0.1: icmp_seq=8 ttl=64 time=426.778 ms
+64 bytes from 127.0.0.1: icmp_seq=9 ttl=64 time=386.079 ms
+--- localhost ping statistics ---
+10 packets transmitted, 10 packets received, 0% packet loss
+round-trip min/avg/max/stddev = 354.852/400.996/549.909/54.785 ms
