@@ -9,7 +9,7 @@ x-base: &base
   command: >
     bash -xc "
     tc qdisc add dev lo root netem delay $${LATENCY}ms $${JITTER}ms $${CORREL}% distribution $${DIST:-"pareto"} 
-    && ping localhost -c 10 | tee /opt/results/results_$${LATENCY}_$${JITTER}_$${CORREL}.txt
+    && ping localhost -c 1000 -i 2 | tee /opt/results/results_$${LATENCY}_$${JITTER}_$${CORREL}.txt
     "
   volumes:
     - ./results:/opt/results:rw

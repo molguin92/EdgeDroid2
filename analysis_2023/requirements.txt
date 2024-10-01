@@ -8,3 +8,4 @@ matplotlib
 pmdarima
 tqdm
 multiprocess
+pypalettes
