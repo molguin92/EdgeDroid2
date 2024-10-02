@@ -77,7 +77,7 @@ def emulate_run_with_step_delays(model: EdgeDroidModel, rtt_s_iter: Iterator[flo
 def run_model(params):
     # print(params)
     (
-        (start_window, rep, delays, loc, mean, var, scale, shape, rho),
+        (start_window, rep, delays, mean, jitter, shape, scale, rho),
         (model_name, model_constructor),
         (experiment_name, emulation_fn),
     ) = params
@@ -96,21 +96,21 @@ def run_model(params):
     df["experiment"] = experiment_name
     df["model"] = model_name
     df["rep"] = rep
-    df["rho"] = rho
-    df["gamma_loc"] = loc
-    df["gamma_scale"] = scale
-    df["gamma_shape"] = shape
-    df["gamma_mean"] = mean
-    df["gamma_var"] = var
+    df["latency_rho"] = rho
+    df["latency_mean"] = mean
+    df["latency_jitter"] = jitter
+    df["pareto_shape"] = shape
+    df["pareto_scale"] = scale
 
     return df
 
 
 def precalculate_delays(
-    params: tuple[int, float, float, float, float, Optional[NDArray], int]
+    params: tuple[int, float, float, float, float, float, Optional[NDArray], int]
 ):
-    (rep, loc, mean, var, rho, acf, count) = params
-    dist, scale, shape = gamma_with_params(loc=loc, mean=mean, var=var)
+    # (rep, mean, jitter, shape, scale, rho, acf, num_frames_to_generate)
+    (rep, mean, jitter, shape, scale, rho, acf, count) = params
+    dist = st.pareto(scale=scale, b=shape)
 
     if acf is not None:
         delays = gen_corr_sequence(
@@ -121,7 +121,7 @@ def precalculate_delays(
         )
     else:
         delays = dist.rvs(size=count)
-    return rep, delays, loc, mean, var, scale, shape, rho
+    return rep, delays, mean, jitter, shape, scale, rho
 
 
 def estimate_std(mean: float, jitter: float) -> float:
@@ -133,7 +133,7 @@ def estimate_std(mean: float, jitter: float) -> float:
 
 
 if __name__ == "__main__":
-    # warnings.filterwarnings("ignore", category=IntegrationWarning)
+    warnings.filterwarnings("ignore", category=IntegrationWarning)
 
     reps_per_model = 30
 
@@ -164,7 +164,7 @@ if __name__ == "__main__":
         ),
     }
 
-    min_bound = 0.042  # 24FPS
+    # min_bound = 0.042  # 24FPS
 
     rhos = (
         (0.0, None),
@@ -173,23 +173,14 @@ if __name__ == "__main__":
         (0.500, acf_50),
     )
 
-    mean_jitter = (
-        (0.10, 0.02),
-        (0.20, 0.04),
-        (0.40, 0.08),
-        (0.80, 0.16),
-        (1.60, 0.32),
-        (3.20, 0.64),
-    )
-
-    mean_vars = [
-        (mean, estimate_std(mean, jitter) ** 2) for mean, jitter in mean_jitter
-    ]
+    fits_df = pd.read_csv("./measure_latency/results/fits.csv")
 
     delay_params = [
-        (rep, min_bound, mean, var, rho, acf, num_frames_to_generate)
-        for rep, (mean, var), (rho, acf) in it.product(
-            range(reps_per_model), mean_vars, rhos
+        (rep, mean, jitter, shape, scale, rho, acf, num_frames_to_generate)
+        for rep, (mean, jitter, shape, scale), (rho, acf) in it.product(
+            range(reps_per_model),
+            [(*r,) for r in fits_df.itertuples(index=False)],
+            rhos,
         )
     ]
 
@@ -218,4 +209,4 @@ if __name__ == "__main__":
                 bar.update(1)
 
     data = pd.concat(dfs)
-    data.to_csv("./per_frame_step_delay_new_gamma_params.csv")
+    data.to_csv("./per_frame_step_delay_new_pareto_params.csv")
